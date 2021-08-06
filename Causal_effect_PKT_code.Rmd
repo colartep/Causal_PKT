@@ -1,0 +1,3272 @@
+---
+title: "Trial emulation and survival analysis for disease incidence registers: a case study on the causal effect of pre-emptive kidney transplantation"
+output: pdf_document
+---
+
+```{r Setup, include=FALSE}
+
+# Set up
+# Load packages
+library(survival)
+library(lubridate)
+library(boot)
+library(stringr)
+library(cmprsk)
+library(ggplot2)
+library(knitr)
+library(mice)
+
+# Load data
+RRT <- 
+  read.delim("RRT.txt", 
+             sep = "", row.names = NULL)
+
+```
+
+
+```{r Survival Summary, include=FALSE}
+
+# Survival summary table
+Survival <- as.data.frame(matrix(NA, nrow = 3, ncol = 5))
+colnames(Survival) <- c(
+  "Patients, n (%)", 
+  "Deaths, n (%)",
+  "% deaths per row",
+  "Median person-years at risk",
+  "Hazard rate")
+row.names(Survival) <- c(
+  "RRT cohort", 
+  "PKT group",
+  "Dialysis first group")
+
+# RRT cohort
+Survival[1,1] <- 
+  paste(format(length(unique(RRT$ID)), big.mark=",", scientific=FALSE), " (",
+        round(length(unique(RRT$ID))/
+                length(unique(RRT$ID))*100, digits = 1),")", sep = "")
+Survival[1,2] <- 
+  paste(format(table(RRT$Death)[2], big.mark=",", scientific=FALSE), " (",
+        round(table(RRT$Death)[2]/
+                table(RRT$Death)[2]*100, digits = 1),")", sep = "")
+Survival[1,3] <- 
+  round(table(RRT$Death)[2]/length(unique(RRT$ID))*100, digits = 1)
+Survival[1,4] <- 
+  round(median(RRT$Follow.up.years), digits = 1)
+Survival[1,5] <-
+  round(table(RRT$Death)[2]/sum(RRT$Follow.up.years), digits = 2)
+
+# PKT group 
+Survival[2,1] <-
+  paste(format(table(RRT$PKT)[2], big.mark=",",scientific=FALSE), " (",
+        round(table(RRT$PKT)[2]/
+                length(unique(RRT$ID))*100, digits = 1),")", sep = "")
+Survival[2,2] <- 
+  paste(format(table(RRT$PKT,RRT$Death)[2,2], big.mark=",",
+               scientific=FALSE), " (",
+        round(table(RRT$PKT,RRT$Death)[2,2]/
+                table(RRT$Death)[2]*100, digits = 1),")", sep = "")
+Survival[2,3] <- 
+  round(table(RRT$PKT,RRT$Death)[2,2]/
+          table(RRT$PKT)[2]*100, digits = 1)
+Survival[2,4] <-
+  round(median(RRT$Follow.up.years[RRT$PKT==1]), digits = 1)
+Survival[2,5] <-
+  round(table(RRT$PKT,RRT$Death)[2,2]/
+          sum(RRT$Follow.up.years[RRT$PKT==1]), digits = 2)
+
+# Dialysis group
+Survival[3,1] <- 
+  paste(format(table(RRT$PKT)[1], big.mark=",",scientific=FALSE), " (",
+        round(table(RRT$PKT)[1]/
+                length(unique(RRT$ID))*100, digits = 1),")", sep = "")
+Survival[3,2] <- 
+  paste(format(table(RRT$PKT,RRT$Death)[1,2], big.mark=",",
+               scientific=FALSE), " (",
+        round(table(RRT$PKT,RRT$Death)[1,2]/
+                table(RRT$Death)[2]*100, digits = 1), ")", sep = "")
+Survival[3,3] <- 
+  round(table(RRT$PKT,RRT$Death)[1,2]/
+          table(RRT$PKT)[1]*100, digits = 1)
+Survival[3,4] <-
+  round(median(RRT$Follow.up.years[RRT$PKT==0]), digits = 1)
+Survival[3,5] <-
+  round(table(RRT$PKT,RRT$Death)[1,2]/
+          sum(RRT$Follow.up.years[RRT$PKT==0]), digits = 2)
+
+```
+
+Table 2. Survival summary
+
+```{r Survival table, echo=FALSE}
+
+kable(Survival, format = "markdown")
+
+```
+
+```{r Survival Summary 2, eval = F, include = F}
+
+# Survival summary table
+# Including additional subgroups
+Survival <- as.data.frame(matrix(NA, nrow = 6, ncol = 5))
+colnames(Survival) <- c(
+  "Patients, n (%)", 
+  "Deaths, n (%)",
+  "% deaths per row",
+  "Median person-years at risk",
+  "Hazard rate")
+row.names(Survival) <- c(
+  "RRT cohort", 
+  "PKT group",
+  "PKT with living donor subgroup",
+  "PKT with cadaveric donor subgroup",
+  "Dialysis first group",
+  "Dialysis and transplant subgroup")
+
+# RRT cohort
+Survival[1,1] <- 
+  paste(format(length(unique(RRT$ID)), big.mark=",", scientific=FALSE), " (",
+        round(length(unique(RRT$ID))/
+                length(unique(RRT$ID))*100, digits = 1),")", sep = "")
+Survival[1,2] <- 
+  paste(format(table(RRT$Death)[2], big.mark=",", scientific=FALSE), " (",
+        round(table(RRT$Death)[2]/
+                table(RRT$Death)[2]*100, digits = 1),")", sep = "")
+Survival[1,3] <- 
+  round(table(RRT$Death)[2]/length(unique(RRT$ID))*100, digits = 1)
+Survival[1,4] <- 
+  round(median(RRT$Follow.up.years), digits = 1)
+Survival[1,5] <-
+  round(table(RRT$Death)[2]/sum(RRT$Follow.up.years), digits = 2)
+
+# PKT group 
+Survival[2,1] <-
+  paste(format(table(RRT$PKT)[2], big.mark=",",scientific=FALSE), " (",
+        round(table(RRT$PKT)[2]/
+                length(unique(RRT$ID))*100, digits = 1),")", sep = "")
+Survival[2,2] <- 
+  paste(format(table(RRT$PKT,RRT$Death)[2,2], big.mark=",",
+               scientific=FALSE), " (",
+        round(table(RRT$PKT,RRT$Death)[2,2]/
+                table(RRT$Death)[2]*100, digits = 1),")", sep = "")
+Survival[2,3] <- 
+  round(table(RRT$PKT,RRT$Death)[2,2]/
+          table(RRT$PKT)[2]*100, digits = 1)
+Survival[2,4] <-
+  round(median(RRT$Follow.up.years[RRT$PKT==1]), digits = 1)
+Survival[2,5] <-
+  round(table(RRT$PKT,RRT$Death)[2,2]/
+          sum(RRT$Follow.up.years[RRT$PKT==1]), digits = 2)
+
+# PKT with living donor subgroup 
+Survival[3,1] <- 
+  paste(format(table(RRT$PKT[RRT$Living.donor==1])[2], big.mark=",",
+               scientific=FALSE), " (",
+        round(table(RRT$PKT[RRT$Living.donor==1])[2]/
+                length(unique(RRT$ID))*100, digits = 1),")", sep = "")
+Survival[3,2] <- 
+  paste(format(table(RRT$PKT[RRT$Living.donor==1],
+                     RRT$Death[RRT$Living.donor==1])[2,2], big.mark=",",
+               scientific=FALSE), " (",
+        round(table(RRT$PKT[RRT$Living.donor==1],
+                    RRT$Death[RRT$Living.donor==1])[2,2]/
+                table(RRT$Death)[2]*100, digits = 1),")", sep = "")
+Survival[3,3] <- 
+  round(table(RRT$PKT[RRT$Living.donor==1],
+              RRT$Death[RRT$Living.donor==1])[2,2]/
+          table(RRT$PKT[RRT$Living.donor==1])[2]*100, digits = 1)
+Survival[3,4] <-
+  round(median(RRT$Follow.up.years[RRT$PKT==1 &
+                                     RRT$Living.donor==1]), digits = 1)
+Survival[3,5] <-
+  round(table(RRT$PKT[RRT$Living.donor==1],
+              RRT$Death[RRT$Living.donor==1])[2,2]/
+          sum(RRT$Follow.up.years[RRT$PKT==1  &
+                                    RRT$Living.donor==1]), digits = 2)
+
+# PKT with cadaveric donor subgroup 
+Survival[4,1] <- 
+  paste(format(table(RRT$PKT[RRT$Living.donor==0])[2], big.mark=",",
+               scientific=FALSE), " (",
+        round(table(RRT$PKT[RRT$Living.donor==0])[2]/
+                length(unique(RRT$ID))*100, digits = 1),")", sep = "")
+Survival[4,2] <- 
+  paste(format(table(RRT$PKT[RRT$Living.donor==0],
+                     RRT$Death[RRT$Living.donor==0])[2,2], big.mark=",",
+               scientific=FALSE), " (",
+        round(table(RRT$PKT[RRT$Living.donor==0],
+                    RRT$Death[RRT$Living.donor==0])[2,2]/
+                table(RRT$Death)[2]*100, digits = 1),")", sep = "")
+Survival[4,3] <- 
+  round(table(RRT$PKT[RRT$Living.donor==0],
+              RRT$Death[RRT$Living.donor==0])[2,2]/
+          table(RRT$PKT[RRT$Living.donor==0])[2]*100, digits = 1)
+Survival[4,4] <-
+  round(median(RRT$Follow.up.years[RRT$PKT==1 &
+                                     RRT$Living.donor==0]), digits = 1)
+Survival[4,5] <-
+  round(table(RRT$PKT[RRT$Living.donor==0],
+              RRT$Death[RRT$Living.donor==0])[2,2]/
+          sum(RRT$Follow.up.years[RRT$PKT==1 &
+                                    RRT$Living.donor==0]), digits = 2)
+
+# Dialysis group
+Survival[5,1] <- 
+  paste(format(table(RRT$PKT)[1], big.mark=",",scientific=FALSE), " (",
+        round(table(RRT$PKT)[1]/
+                length(unique(RRT$ID))*100, digits = 1),")", sep = "")
+Survival[5,2] <- 
+  paste(format(table(RRT$PKT,RRT$Death)[1,2], big.mark=",",
+               scientific=FALSE), " (",
+        round(table(RRT$PKT,RRT$Death)[1,2]/
+                table(RRT$Death)[2]*100, digits = 1), ")", sep = "")
+Survival[5,3] <- 
+  round(table(RRT$PKT,RRT$Death)[1,2]/
+          table(RRT$PKT)[1]*100, digits = 1)
+Survival[5,4] <-
+  round(median(RRT$Follow.up.years[RRT$PKT==0]), digits = 1)
+Survival[5,5] <-
+  round(table(RRT$PKT,RRT$Death)[1,2]/
+          sum(RRT$Follow.up.years[RRT$PKT==0]), digits = 2)
+
+
+# Dialysis and transplant subgroup
+Survival[6,1] <- 
+  paste(format(table(RRT$PKT[RRT$Transplant==1])[1], 
+               big.mark=",",scientific=FALSE), " (",
+        round(table(RRT$PKT[RRT$Transplant==1])[1]/
+                length(unique(RRT$ID))*100, digits = 1),")", sep = "")
+Survival[6,2] <- 
+  paste(format(table(RRT$PKT[RRT$Transplant==1],
+                     RRT$Death[RRT$Transplant==1])[1,2], big.mark=",",
+               scientific=FALSE), " (",
+        round(table(RRT$PKT[RRT$Transplant==1],
+                    RRT$Death[RRT$Transplant==1])[1,2]/
+                table(RRT$Death)[2]*100, digits = 1), ")", sep = "")
+Survival[6,3] <- 
+  round(table(RRT$PKT[RRT$Transplant==1],
+              RRT$Death[RRT$Transplant==1])[1,2]/
+          table(RRT$PKT[RRT$Transplant==1])[1]*100, digits = 1)
+Survival[6,4] <-
+  round(median(RRT$Follow.up.years[RRT$PKT==0 & RRT$Transplant==1]),
+        digits = 1)
+Survival[6,5] <-
+  round(table(RRT$PKT[RRT$Transplant==1],
+              RRT$Death[RRT$Transplant==1])[1,2]/
+          sum(RRT$Follow.up.years[RRT$PKT==0 & 
+                                    RRT$Transplant==1]), digits = 2)
+
+```
+
+```{r Baseline characteristics, include=FALSE}
+
+Baseline.covariate <- cbind.data.frame(
+  RRT$Age.at.RRT.onset,
+  RRT$Sex,
+  RRT$Region=="Stockholm",
+  RRT$Region=="Uppsala/Orebro", 
+  RRT$Region=="Northern", 
+  RRT$Region=="Southern", 
+  RRT$Region=="Southeastern", 
+  RRT$Region=="Western",
+  RRT$Primary.kidney.disease=="Diabetic nephropathy",
+  RRT$Primary.kidney.disease=="Glomerulonephritis", 
+  RRT$Primary.kidney.disease=="Uremia of unknown cause", 
+  RRT$Primary.kidney.disease=="Polycystic kidney disease", 
+  RRT$Primary.kidney.disease=="Pyelonephritis", 
+  ifelse(RRT$Primary.kidney.disease=="Other" | 
+           RRT$Primary.kidney.disease=="Hypertensive nephropathy",1,0))
+Baseline.covariate.summary <- as.data.frame(
+  matrix(NA, nrow = length(Baseline.covariate)+1, ncol = 4))
+colnames(Baseline.covariate.summary) <- c(
+  paste("RRT (n=", 
+        format(length(unique(RRT$ID)), big.mark=",", scientific=FALSE), 
+        ")", sep=""),
+  paste("1) PKT (n=", 
+        format(table(RRT$PKT)[2], big.mark=",", scientific=FALSE), 
+        ")", sep=""),
+  paste("2) Dialysis first (n=", 
+        format(table(RRT$PKT)[1], big.mark=",", scientific=FALSE),
+        ")", sep=""),
+  "Difference between 1 and 2 (95% CI)")
+row.names(Baseline.covariate.summary) <- c(
+  "Deaths, n (%)",
+  "Age, median (Q1, Q2)",
+  "Sex (female), n (%)",
+  "Region (Stockholm, reference), n(%)",
+  "Region (Uppsala/Orebro), n (%)",
+  "Region (Northern), n (%)",
+  "Region (Southern), n (%)",
+  "Region (Southeastern), n (%)",
+  "Region (Western), n (%)",
+  "Kidney disease (Diabetic nephropathy, reference), n (%)",
+  "Kidney disease (Glomerulonephritis), n (%)",
+  "Kidney disease (Uremia of unknown cause), n (%)",
+  "Kidney disease (Polycystic kidney disease), n (%)",
+  "Kidney disease (Pyelonephritis), n (%)",
+  "Kidney disease (Other), n (%)")
+
+# Number of death per group
+Baseline.covariate.summary[1,1] <- 
+  paste(format(sum(RRT$Death), big.mark=",", scientific=FALSE), 
+        " (",
+        round(sum(RRT$Death)/length(RRT$Death)*100, digits = 1),")", sep = "")
+Baseline.covariate.summary[1,2] <- 
+  paste(format(sum(RRT$Death[RRT$PKT==1]), big.mark=",", scientific=FALSE), 
+        " (",
+        round(sum(RRT$Death[RRT$PKT==1])/
+                length(RRT$Death[RRT$PKT==1])*100, 
+              digits = 1),")", sep = "")
+Baseline.covariate.summary[1,3] <- 
+  paste(format(sum(RRT$Death[RRT$PKT==0]), big.mark=",", scientific=FALSE), 
+        " (",
+        round(sum(RRT$Death[RRT$PKT==0])/
+                length(RRT$Death[RRT$PKT==0])*100, 
+              digits = 1),")", sep = "")
+Baseline.covariate.summary[1,4] <-
+  paste((round(sum(RRT$Death[RRT$PKT==1])/
+                 length(RRT$Death[RRT$PKT==1])*100, 
+               digits = 1) -
+           round(sum(RRT$Death[RRT$PKT==0])/
+                   length(RRT$Death[RRT$PKT==0])*100, 
+                 digits = 1)), " (",
+        (round(prop.test(
+          table(RRT$PKT,RRT$Death))[[6]][1]*100,digits = 1)),", ", 
+        (round(prop.test(
+          table(RRT$PKT,RRT$Death))[[6]][2]*100,digits = 1)),")", sep = "")
+
+# Age summary
+Baseline.covariate.summary[2,1] <- 
+  paste(round(median(RRT$Age.at.RRT.onset), digits = 1), " (",
+        round(quantile(RRT$Age.at.RRT.onset, 0.25), digits = 1), ", ",
+        round(quantile(RRT$Age.at.RRT.onset, 0.75), digits = 1), ")", sep = "")
+Baseline.covariate.summary[2,2] <-
+  paste(round(median(RRT$Age.at.RRT.onset[RRT$PKT==1]), digits = 1), " (",
+        round(quantile(RRT$Age.at.RRT.onset[RRT$PKT==1], 0.25), digits = 1), ", ",
+        round(quantile(RRT$Age.at.RRT.onset[RRT$PKT==1], 0.75), digits = 1), ")", sep = "")
+Baseline.covariate.summary[2,3] <-
+  paste(round(median(RRT$Age.at.RRT.onset[RRT$PKT==0]), digits = 1), " (",
+        round(quantile(RRT$Age.at.RRT.onset[RRT$PKT==0], 0.25), digits = 1), ", ",
+        round(quantile(RRT$Age.at.RRT.onset[RRT$PKT==0], 0.75), digits = 1), ")", sep = "")
+Baseline.covariate.summary[2,4] <-
+  paste(round(wilcox.test(RRT$Age.at.RRT.onset[RRT$PKT==1],
+                          RRT$Age.at.RRT.onset[RRT$PKT==0],
+                          conf.int = T, conf.level = 0.95)[[9]], 
+              digits = 1),  " (",
+        round(wilcox.test(RRT$Age.at.RRT.onset[RRT$PKT==1],
+                          RRT$Age.at.RRT.onset[RRT$PKT==0],
+                          conf.int = T, conf.level = 0.95)[[8]][1],
+              digits = 1),  ",",
+        round(wilcox.test(RRT$Age.at.RRT.onset[RRT$PKT==1],
+                          RRT$Age.at.RRT.onset[RRT$PKT==0],
+                          conf.int = T, conf.level = 0.95)[[8]][2],
+              digits = 1),  ")")
+
+# Summary of the rest of variables  
+i <-1
+for(i in 1:(nrow(Baseline.covariate.summary)-2)){
+  Baseline.covariate.summary[i+2,1] <- 
+    paste(format(sum(na.omit(Baseline.covariate[,i+1]==1)), 
+                 big.mark=",", scientific=FALSE), " (",
+          format(round((sum(na.omit(Baseline.covariate[,i+1]==1))/
+                   nrow(Baseline.covariate)*100), 
+                digits = 1), nsmall = 1),")", sep = "")
+  Baseline.covariate.summary[i+2,2] <-
+    paste(format(sum(na.omit(Baseline.covariate[RRT$PKT==1,i+1]==1)), 
+                 big.mark=",", scientific=FALSE)," (",
+          format(round((sum(na.omit(Baseline.covariate[RRT$PKT==1,i+1]==1))/
+                   nrow(Baseline.covariate[RRT$PKT==1,])*100), 
+                digits = 1), nsmall = 1),")", sep = "") 
+  Baseline.covariate.summary[i+2,3] <-
+    paste(format(sum(na.omit(Baseline.covariate[RRT$PKT==0,i+1]==1)), 
+                 big.mark=",", scientific=FALSE)," (",
+          format(round((sum(na.omit(Baseline.covariate[RRT$PKT==0,i+1]==1))/
+                   nrow(Baseline.covariate[RRT$PKT==0,])*100), 
+                digits = 1), nsmall = 1),")", sep = "")
+  Baseline.covariate.summary[i+2,4] <- 
+    paste(format((round(((sum(na.omit(Baseline.covariate[RRT$PKT==1,i+1]==1)))/
+                    nrow(Baseline.covariate[RRT$PKT==1,])*100)-
+                   ((sum(na.omit(Baseline.covariate[RRT$PKT==0,i+1]==1)))/
+                      nrow(Baseline.covariate[RRT$PKT==0,])*100), 
+                 digits = 2)), nsmall = 1), " (",
+          format((round(prop.test(
+            table(RRT$PKT,Baseline.covariate[,i+1]))[[6]][1]*100,digits = 1)), nsmall = 1),
+          ", ", format((round(prop.test(table(
+            RRT$PKT,Baseline.covariate[,i+1]))[[6]][2]*100, digits = 1)), nsmall = 1),")", sep = "")
+}
+
+# Place death row at the end
+Baseline.covariate.summary <-
+  rbind(Baseline.covariate.summary[-1,],
+        Baseline.covariate.summary[1,])
+  
+
+remove(Baseline.covariate)
+
+```
+
+Appendix D
+Table D1. Comparison of the covariate distribution in different (sub)populations
+
+```{r Baseline characteristics table, echo=FALSE}
+
+kable(Baseline.covariate.summary, format = "markdown", align = c('l','c','c','c','c'))
+
+```
+
+```{r Unadjusted Patient Survival after RRT, include=FALSE}
+
+KM <- 
+  survfit(Surv(Follow.up.years, Death) ~ PKT==0, 
+          data = RRT,
+          conf.type = "log-log")
+log.rank <- 
+  survdiff(Surv(Follow.up.years, Death) ~ PKT, 
+           data = RRT)
+
+# Including only patients with transplant
+KM.transplant <- 
+  survfit(Surv(Follow.up.years, Death) ~ 0, 
+          data = RRT[RRT$Transplant==1 &
+                       RRT$PKT==0,],
+          conf.type = "log-log")
+log.rank.truncated <- 
+  survdiff(Surv(Follow.up.years, Death) ~ PKT, 
+           data = RRT[RRT$Transplant==1,])
+
+```
+
+
+```{r Time to transplantation, include = FALSE}
+# Non-parametric estimation
+km.transplant.competing.risk <- 
+  cuminc(RRT$Time.dialysis.transplant[RRT$PKT==0],
+         RRT$Transplant.competing.risk[RRT$PKT==0])
+
+time.scale <- seq(0, 25, 5)
+
+# Patients at risk
+dialysis.at.risk <- rep(NA, length(time.scale))
+for (i in (1:length(time.scale))) {
+  dialysis.at.risk[i] <-
+    sum(RRT$Follow.up.years[RRT$PKT==0]>=time.scale[i])
+}
+
+
+
+```
+
+Figure 4. Cumulative incidence of transplantation in the dialysis first group
+
+```{r Plot of Competing Risks, echo=FALSE, fig.width=8, fig.height=6}
+# No title to include in paper
+plot(km.transplant.competing.risk,
+     xlab = "",
+     ylab = "Cumulative Incidence",
+     ylim = c(0,1.1),
+     color = c("red", "black"))
+
+legend(x=0, 
+       y=1.12, 
+       legend = c("Transplant", "Death"), 
+       lty=1:2,
+       col = c("red", "black"))
+axis(side = 1, at = time.scale, tick = F, 
+     labels = dialysis.at.risk, line = 1.5)
+mtext("At Risk", 
+      side = 1, line = 2.5, at = -4)
+mtext("Follow-up time from RRT onset (years)",
+      side = 1, line = 4, at = 12.5)
+
+```
+
+```{r ggplot code for competing risks, eval=F}
+
+km.dialysis.transplant <- 
+  cbind.data.frame(km.transplant.competing.risk$`1 1`$time,
+                   km.transplant.competing.risk$`1 1`$est)
+names(km.dialysis.transplant) <- c("Time","Cumulative.incidence")
+km.dialysis.death <- 
+  cbind.data.frame(km.transplant.competing.risk$`1 2`$time,
+                   km.transplant.competing.risk$`1 2`$est)
+names(km.dialysis.death) <- names(km.dialysis.transplant)
+
+
+ggplot() +
+  geom_step(data=km.dialysis.death, 
+            aes(x=Time, y=Cumulative.incidence), 
+            color="black", linetype = "dashed")+
+  geom_step(data=km.dialysis.transplant, 
+            aes(x=Time, y=Cumulative.incidence), 
+            color="red")+
+  labs(x="Follow-up time from RRT onset (years)",
+         y="Cumulative Incidence")
+
+```
+
+
+
+```{r Propensity Score for PKT, include=FALSE}
+
+PS <- glm(RRT$PKT ~ Age.at.RRT.onset +
+               Calendar.year+
+               Sex + 
+               Region + 
+               Primary.kidney.disease +
+               Age.at.RRT.onset:Calendar.year+
+               Age.at.RRT.onset:Sex + 
+               Age.at.RRT.onset:Primary.kidney.disease +
+               Sex:Calendar.year +
+               Sex:Primary.kidney.disease, 
+          data = RRT,
+          family = binomial)
+
+# Summary of PS model 
+PS.model.summary <- 
+  matrix(NA, nrow = length(PS$coefficients)-1, ncol = 3)
+
+PS.model.summary[,1] <-
+  format(round(summary(PS)[[12]][-1,1], digits = 2), nsmall = 2)
+
+PS.model.summary[,2] <-
+  format(round(summary(PS)[[12]][-1,2], digits = 2), nsmall = 2)
+
+PS.model.summary[,3] <-
+  format(round(summary(PS)[[12]][-1,4], digits = 2), nsmall = 2)
+
+row.names(PS.model.summary) <- names(PS$coefficients)[-1]
+colnames(PS.model.summary) <- c("Beta" , "SE", "p-value")
+
+# PS per group
+
+summary(PS$fitted.values[PS$y==1])
+summary(PS$fitted.values[PS$y==0])
+
+# For density plot
+PS.PKT <- density(PS$fitted.values[PS$y==1], from = 0)
+PS.dialysis <- density(PS$fitted.values[PS$y==0], from = 0)
+
+```
+
+Table D2. Propensity score model summary
+
+```{r Propensity Score summary, echo=FALSE}
+
+kable(PS.model.summary, format = "markdown", align = c('l','r','c','c'))
+
+```
+
+Figure 4.Density plot for the propensity score for PKT for the PKT subpopulation (PKT = 1) and the dialysis first subpopulation (PKT = 0).
+
+```{r Propensity Score for PKT histogram, echo=FALSE, fig.width=8, fig.height=6}
+
+colors<-c("#3333B2","#139639")
+plot(PS.dialysis,
+     main = "",
+     xlab = "Propensity score",
+     xlim = c(0,0.5),
+     ylab = "Density",
+     ylim = c(0,20),
+     col = colors[2],
+     lty = 3,
+     zero.line = F,
+     bty="n")
+lines(PS.PKT,
+      col = colors[1])
+legend("right",
+       c("PKT", 
+         "Dialysis first"), 
+       lwd = 1,
+       lty = c(1,3),
+       col = colors,
+       bty="n")
+
+```
+
+```{r Covariates for Cox models, include=FALSE}
+
+# Start with full cases
+# Continuous variables
+Cox.imputation <- cbind.data.frame(RRT$Age.at.RRT.onset, RRT$Calendar.year)
+colnames(Cox.imputation) <- c("Age.at.RRT.onset","Calendar.year")
+
+# Binary covariates
+Cox.imputation$Sex <- as.factor(RRT$Sex)
+Cox.imputation$Region <- as.factor(RRT$Region)
+Cox.imputation$Primary.kidney.disease <- as.factor(RRT$Primary.kidney.disease)
+
+# Add comorbidities. NAs for those patients before 1998
+Cox.imputation$Hypertension <-
+  ifelse(RRT$Calendar.year >= 1998, as.factor(RRT$Hypertension), NA)
+Cox.imputation$Hypertension <- as.factor(Cox.imputation$Hypertension)
+
+Cox.imputation$Diabetes <-
+  ifelse(RRT$Calendar.year >= 1998, as.factor(RRT$Diabetes), NA)
+Cox.imputation$Diabetes <- as.factor(Cox.imputation$Diabetes)
+
+Cox.imputation$Ischemic.heart.disease <-
+  ifelse(RRT$Calendar.year >= 1998, as.factor(RRT$Ischemic.heart.disease), NA)
+Cox.imputation$Ischemic.heart.disease <- as.factor(Cox.imputation$Ischemic.heart.disease)
+
+Cox.imputation$Peripheral.artery.disease <-
+  ifelse(RRT$Calendar.year >= 1998, as.factor(RRT$Peripheral.artery.disease), NA)
+Cox.imputation$Peripheral.artery.disease <- as.factor(Cox.imputation$Peripheral.artery.disease)
+
+Cox.imputation$Cerebrovascular.disease <-
+  ifelse(RRT$Calendar.year >= 1998, as.factor(RRT$Cerebrovascular.disease), NA)
+Cox.imputation$Cerebrovascular.disease <- as.factor(Cox.imputation$Cerebrovascular.disease)
+```
+
+```{r Export dataset to HPC, eval = F, include = F}
+
+# To export for HPC
+imputedata <-
+  cbind.data.frame(
+    Cox.imputation,
+    RRT$Follow.up.years,
+    RRT$Death,
+    RRT$PKT)
+
+colnames(imputedata) <- 
+  c(paste("V",1:10,sep = ""),"Time","Outcome","group")
+
+levels(imputedata$V4) <- 1:length(levels(imputedata$V4))
+
+levels(imputedata$V5) <- 1:length(levels(imputedata$V5))
+
+#write.table(imputedata,
+#            "imputedata.txt")
+
+```
+
+```{r Imputation of comorbidities, include = F}
+
+Cox.imputation$PKT <- as.factor(RRT$PKT)
+Cox.imputation$Time <- log(RRT$Follow.up.years)
+Cox.imputation$Death <- as.factor(RRT$Death)
+
+# Imputation
+n.imputations <- 10
+imputed.data <- 
+  mice(Cox.imputation, print = F, m=n.imputations, seed=19)
+
+# Separate into treatment groups and continue to have MIDS objects
+long.RRT <- complete(imputed.data, action='long', include=TRUE)
+imputed.PKT <- as.mids(long.RRT[RRT$PKT==1,])
+imputed.dialysis <- as.mids(long.RRT[RRT$PKT==0,])
+
+```
+
+
+```{r Summary of imputed comorbidites, include = F}
+
+Comorbidities.summary <- 
+  as.data.frame(matrix(NA, nrow = 5, ncol = 4))
+
+i <- 1
+for (i in 1:nrow(Comorbidities.summary)) {
+  Comorbidities.summary[i,1] <- 
+    paste(format(round(table(
+      long.RRT[which(long.RRT$.imp!=0),i+7])[2]/n.imputations), 
+      big.mark=",", scientific=FALSE), " (",
+      format(round(prop.table(table(long.RRT[which(long.RRT$.imp!=0),i+7]))[2]*100, 
+                digits = 1), nsmall = 1), ")", sep = "")
+  Comorbidities.summary[i,2] <- 
+    paste(format(round(table(
+        long.RRT[which(long.RRT$.imp!=0 & long.RRT$PKT==1),i+7])[2]/
+          n.imputations), big.mark=",", scientific=FALSE), " (",
+        format(round(prop.table(table(
+          long.RRT[which(long.RRT$.imp!=0 & long.RRT$PKT==1),i+7]))[2]*100, 
+              digits = 1), nsmall = 1), ")", sep = "")
+  Comorbidities.summary[i,3] <- 
+    paste(format(round(table(
+      long.RRT[which(long.RRT$.imp!=0 & long.RRT$PKT==0),i+7])[2]/
+        n.imputations), big.mark=",", scientific=FALSE), " (",
+      format(round(prop.table(table(
+        long.RRT[which(long.RRT$.imp!=0 & long.RRT$PKT==0),i+7]))[2]*100, 
+        digits = 1), nsmall = 1), ")", sep = "")
+  Comorbidities.summary[i,4] <- 
+    paste(format(round((prop.table(table(
+      long.RRT[which(long.RRT$.imp!=0 & long.RRT$PKT==1),i+7]))[2]-
+        prop.table(table(
+          long.RRT[which(long.RRT$.imp!=0 & long.RRT$PKT==0),i+7]))[2])*100, digits = 1), 
+      big.mark=",", scientific=FALSE), " (", 
+      format(round(prop.test(rbind(
+        table(long.RRT[which(long.RRT$.imp!=0 & long.RRT$PKT==0),i+7]),
+        table(long.RRT[which(long.RRT$.imp!=0 & long.RRT$PKT==1),i+7])))
+        [[6]][1]*100,digits=1),nsmall=1), ", ",
+      format(round(prop.test(rbind(
+        table(long.RRT[which(long.RRT$.imp!=0 & long.RRT$PKT==0),i+7]),
+        table(long.RRT[which(long.RRT$.imp!=0 & long.RRT$PKT==1),i+7])))
+        [[6]][2]*100,digits=1),nsmall=1), ")", sep = "")
+
+}
+
+names(Comorbidities.summary) <- names(Baseline.covariate.summary)
+
+```
+
+```{r Summary of imputed comorbidites table, echo=FALSE}
+
+# Updated baseline characteristics table
+# Death as last row
+kable(rbind.data.frame(Baseline.covariate.summary[-nrow(Baseline.covariate.summary),],
+            Comorbidities.summary,
+            Baseline.covariate.summary[nrow(Baseline.covariate.summary),]), 
+      format = "markdown", align = c('l','c','c','c','c'))
+
+```
+
+
+```{r Separate models per treatment, eval = FALSE,include = FALSE}
+
+# Fit PKT model
+PKT.mice.model <- 
+  with(imputed.PKT, 
+       coxph(Surv(RRT$Follow.up.years[RRT$PKT==1], RRT$Death[RRT$PKT==1]) ~ 
+               Age.at.RRT.onset +
+               Calendar.year+
+               Sex + 
+               Region + 
+               Primary.kidney.disease +
+               Hypertension +
+               Diabetes +
+               Ischemic.heart.disease +
+               Peripheral.artery.disease +
+               Cerebrovascular.disease + 
+               Age.at.RRT.onset:Calendar.year+
+               Age.at.RRT.onset:Sex + 
+               Age.at.RRT.onset:Primary.kidney.disease +
+               Age.at.RRT.onset:Hypertension +
+               Age.at.RRT.onset:Diabetes +
+               Age.at.RRT.onset:Ischemic.heart.disease +
+               Age.at.RRT.onset:Peripheral.artery.disease +
+               Age.at.RRT.onset:Cerebrovascular.disease +
+               Sex:Calendar.year +
+               Sex:Primary.kidney.disease +
+               Sex:Hypertension +
+               Sex:Diabetes +
+               Sex:Ischemic.heart.disease +
+               Sex:Peripheral.artery.disease +
+               Sex:Cerebrovascular.disease))
+PKT.mice.model.pool <- pool(PKT.mice.model)
+
+# Fit dialysis model
+dialysis.mice.model <- 
+  with(imputed.dialysis, 
+       coxph(Surv(RRT$Follow.up.years[RRT$PKT==0], RRT$Death[RRT$PKT==0]) ~ 
+               Age.at.RRT.onset +
+               Calendar.year+
+               Sex + 
+               Region + 
+               Primary.kidney.disease +
+               Hypertension +
+               Diabetes +
+               Ischemic.heart.disease +
+               Peripheral.artery.disease +
+               Cerebrovascular.disease + 
+               Age.at.RRT.onset:Calendar.year+
+               Age.at.RRT.onset:Sex + 
+               Age.at.RRT.onset:Primary.kidney.disease +
+               Age.at.RRT.onset:Hypertension +
+               Age.at.RRT.onset:Diabetes +
+               Age.at.RRT.onset:Ischemic.heart.disease +
+               Age.at.RRT.onset:Peripheral.artery.disease +
+               Age.at.RRT.onset:Cerebrovascular.disease +
+               Sex:Calendar.year +
+               Sex:Primary.kidney.disease +
+               Sex:Hypertension +
+               Sex:Diabetes +
+               Sex:Ischemic.heart.disease +
+               Sex:Peripheral.artery.disease +
+               Sex:Cerebrovascular.disease))
+dialysis.mice.model.pool <- pool(dialysis.mice.model)
+
+
+
+```
+
+```{r Potential outcome under PKT, eval = FALSE,include = FALSE}
+
+# For PKT subpgroup
+PKT.under.PKT.mice <- 
+  matrix(NA, ncol = imputed.data$m,
+         nrow = length(unique(RRT$Follow.up.years[RRT$PKT==1])))
+
+i <- 1
+
+for (i in 1:imputed.data$m) {
+  survival.estimate <- 
+    with(imputed.PKT,
+         survfit(coxph(Surv(RRT$Follow.up.years[RRT$PKT==1], RRT$Death[RRT$PKT==1]) ~ 
+                         Age.at.RRT.onset +
+                         Calendar.year+
+                         Sex + 
+                         Region + 
+                         Primary.kidney.disease +
+                         Hypertension +
+                         Diabetes +
+                         Ischemic.heart.disease +
+                         Peripheral.artery.disease +
+                         Cerebrovascular.disease + 
+                         Age.at.RRT.onset:Calendar.year+
+                         Age.at.RRT.onset:Sex + 
+                         Age.at.RRT.onset:Primary.kidney.disease +
+                         Age.at.RRT.onset:Hypertension +
+                         Age.at.RRT.onset:Diabetes +
+                         Age.at.RRT.onset:Ischemic.heart.disease +
+                         Age.at.RRT.onset:Peripheral.artery.disease +
+                         Age.at.RRT.onset:Cerebrovascular.disease +
+                         Sex:Calendar.year +
+                         Sex:Primary.kidney.disease +
+                         Sex:Hypertension +
+                         Sex:Diabetes +
+                         Sex:Ischemic.heart.disease +
+                         Sex:Peripheral.artery.disease +
+                         Sex:Cerebrovascular.disease),
+                 complete(imputed.PKT, action = i)))
+  
+  PKT.under.PKT.mice[,i] <- rowMeans(survival.estimate$analyses[[i]]$surv)
+  print(i)
+}
+
+PKT.under.PKT.survival.mice <- 
+  rowMeans(PKT.under.PKT.mice)
+
+remove(PKT.under.PKT.mice)
+
+# write.table(PKT.under.PKT.survival.mice,
+#            "PKT.under.PKT.survival.mice.txt")
+
+# For dialysis subgroup
+
+dialysis.under.PKT.mice <- 
+  matrix(NA, ncol = imputed.data$m,
+         nrow = length(unique(RRT$Follow.up.years[RRT$PKT==1])))
+
+i <- 1
+
+for (i in 1:imputed.data$m) {
+  survival.estimate <- 
+    with(imputed.PKT,
+         survfit(coxph(Surv(RRT$Follow.up.years[RRT$PKT==1], RRT$Death[RRT$PKT==1]) ~ 
+                         Age.at.RRT.onset +
+                         Calendar.year+
+                         Sex + 
+                         Region + 
+                         Primary.kidney.disease +
+                         Hypertension +
+                         Diabetes +
+                         Ischemic.heart.disease +
+                         Peripheral.artery.disease +
+                         Cerebrovascular.disease + 
+                         Age.at.RRT.onset:Calendar.year+
+                         Age.at.RRT.onset:Sex + 
+                         Age.at.RRT.onset:Primary.kidney.disease +
+                         Age.at.RRT.onset:Hypertension +
+                         Age.at.RRT.onset:Diabetes +
+                         Age.at.RRT.onset:Ischemic.heart.disease +
+                         Age.at.RRT.onset:Peripheral.artery.disease +
+                         Age.at.RRT.onset:Cerebrovascular.disease +
+                         Sex:Calendar.year +
+                         Sex:Primary.kidney.disease +
+                         Sex:Hypertension +
+                         Sex:Diabetes +
+                         Sex:Ischemic.heart.disease +
+                         Sex:Peripheral.artery.disease +
+                         Sex:Cerebrovascular.disease),
+                 complete(imputed.dialysis, action = i)))
+  
+  dialysis.under.PKT.mice[,i] <- rowMeans(survival.estimate$analyses[[i]]$surv)
+  print(i)
+}
+
+dialysis.under.PKT.survival.mice <- 
+  rowMeans(dialysis.under.PKT.mice)
+
+remove(dialysis.under.PKT.mice)
+
+# write.table(dialysis.under.PKT.survival.mice,
+#            "dialysis.under.PKT.survival.mice.txt")
+
+# For full RRT group
+
+RRT.under.PKT.mice <- 
+  matrix(NA, ncol = imputed.data$m,
+         nrow = length(unique(RRT$Follow.up.years[RRT$PKT==1])))
+
+i <- 1
+
+for (i in 1:imputed.data$m) {
+  survival.estimate <- 
+    with(imputed.PKT,
+         survfit(coxph(Surv(RRT$Follow.up.years[RRT$PKT==1], RRT$Death[RRT$PKT==1]) ~ 
+                         Age.at.RRT.onset +
+                         Calendar.year+
+                         Sex + 
+                         Region + 
+                         Primary.kidney.disease +
+                         Hypertension +
+                         Diabetes +
+                         Ischemic.heart.disease +
+                         Peripheral.artery.disease +
+                         Cerebrovascular.disease + 
+                         Age.at.RRT.onset:Calendar.year+
+                         Age.at.RRT.onset:Sex + 
+                         Age.at.RRT.onset:Primary.kidney.disease +
+                         Age.at.RRT.onset:Hypertension +
+                         Age.at.RRT.onset:Diabetes +
+                         Age.at.RRT.onset:Ischemic.heart.disease +
+                         Age.at.RRT.onset:Peripheral.artery.disease +
+                         Age.at.RRT.onset:Cerebrovascular.disease +
+                         Sex:Calendar.year +
+                         Sex:Primary.kidney.disease +
+                         Sex:Hypertension +
+                         Sex:Diabetes +
+                         Sex:Ischemic.heart.disease +
+                         Sex:Peripheral.artery.disease +
+                         Sex:Cerebrovascular.disease),
+                 complete(imputed.data, action = i)))
+  
+  RRT.under.PKT.mice[,i] <- rowMeans(survival.estimate$analyses[[i]]$surv)
+  print(i)
+}
+
+RRT.under.PKT.survival.mice <- 
+  rowMeans(RRT.under.PKT.mice)
+
+remove(RRT.under.PKT.mice)
+
+# write.table(RRT.under.PKT.survival.mice,
+#            "RRT.under.PKT.survival.mice.txt")
+
+
+```
+
+```{r Potential outcome under dialysis, eval = FALSE,include = FALSE}
+
+# For PKT subgroup
+PKT.under.dialysis.mice <- 
+  matrix(NA, ncol = imputed.data$m,
+         nrow = length(unique(RRT$Follow.up.years[RRT$PKT==0])))
+
+i <- 1
+
+for (i in 1:imputed.data$m) {
+  survival.estimate <- 
+    with(imputed.dialysis,
+         survfit(coxph(Surv(RRT$Follow.up.years[RRT$PKT==0], RRT$Death[RRT$PKT==0]) ~ 
+                         Age.at.RRT.onset +
+                         Calendar.year+
+                         Sex + 
+                         Region + 
+                         Primary.kidney.disease +
+                         Hypertension +
+                         Diabetes +
+                         Ischemic.heart.disease +
+                         Peripheral.artery.disease +
+                         Cerebrovascular.disease + 
+                         Age.at.RRT.onset:Calendar.year+
+                         Age.at.RRT.onset:Sex + 
+                         Age.at.RRT.onset:Primary.kidney.disease +
+                         Age.at.RRT.onset:Hypertension +
+                         Age.at.RRT.onset:Diabetes +
+                         Age.at.RRT.onset:Ischemic.heart.disease +
+                         Age.at.RRT.onset:Peripheral.artery.disease +
+                         Age.at.RRT.onset:Cerebrovascular.disease +
+                         Sex:Calendar.year +
+                         Sex:Primary.kidney.disease +
+                         Sex:Hypertension +
+                         Sex:Diabetes +
+                         Sex:Ischemic.heart.disease +
+                         Sex:Peripheral.artery.disease +
+                         Sex:Cerebrovascular.disease),
+                 complete(imputed.PKT, action = i)))
+  
+  PKT.under.dialysis.mice[,i] <- rowMeans(survival.estimate$analyses[[i]]$surv)
+  print(i)
+}
+
+PKT.under.dialysis.survival.mice <- 
+  rowMeans(PKT.under.dialysis.mice)
+
+remove(PKT.under.dialysis.mice)
+
+# write.table(PKT.under.dialysis.survival.mice,
+#            "PKT.under.dialysis.survival.mice.txt")
+
+# For dialysis subgroup
+dialysis.under.dialysis.mice <- 
+  matrix(NA, ncol = imputed.data$m,
+         nrow = length(unique(RRT$Follow.up.years[RRT$PKT==0])))
+
+i <- 1
+
+for (i in 1:imputed.data$m) {
+  survival.estimate <- 
+    with(imputed.dialysis,
+         survfit(coxph(Surv(RRT$Follow.up.years[RRT$PKT==0], RRT$Death[RRT$PKT==0]) ~ 
+                         Age.at.RRT.onset +
+                         Calendar.year+
+                         Sex + 
+                         Region + 
+                         Primary.kidney.disease +
+                         Hypertension +
+                         Diabetes +
+                         Ischemic.heart.disease +
+                         Peripheral.artery.disease +
+                         Cerebrovascular.disease + 
+                         Age.at.RRT.onset:Calendar.year+
+                         Age.at.RRT.onset:Sex + 
+                         Age.at.RRT.onset:Primary.kidney.disease +
+                         Age.at.RRT.onset:Hypertension +
+                         Age.at.RRT.onset:Diabetes +
+                         Age.at.RRT.onset:Ischemic.heart.disease +
+                         Age.at.RRT.onset:Peripheral.artery.disease +
+                         Age.at.RRT.onset:Cerebrovascular.disease +
+                         Sex:Calendar.year +
+                         Sex:Primary.kidney.disease +
+                         Sex:Hypertension +
+                         Sex:Diabetes +
+                         Sex:Ischemic.heart.disease +
+                         Sex:Peripheral.artery.disease +
+                         Sex:Cerebrovascular.disease),
+                 complete(imputed.dialysis, action = i)))
+  
+  dialysis.under.dialysis.mice[,i] <- rowMeans(survival.estimate$analyses[[i]]$surv)
+  print(i)
+}
+
+dialysis.under.dialysis.survival.mice <- 
+  rowMeans(dialysis.under.dialysis.mice)
+
+remove(dialysis.under.dialysis.mice)
+
+# write.table(dialysis.under.dialysis.mice,
+#            "dialysis.under.dialysis.mice.txt")
+
+# For full RRT group
+
+RRT.under.dialysis.mice <- 
+  matrix(NA, ncol = imputed.data$m,
+         nrow = length(unique(RRT$Follow.up.years[RRT$PKT==0])))
+
+i <- 1
+
+for (i in 1:imputed.data$m) {
+  survival.estimate <- 
+    with(imputed.dialysis,
+         survfit(coxph(Surv(RRT$Follow.up.years[RRT$PKT==0], RRT$Death[RRT$PKT==0]) ~ 
+                         Age.at.RRT.onset +
+                         Calendar.year+
+                         Sex + 
+                         Region + 
+                         Primary.kidney.disease +
+                         Hypertension +
+                         Diabetes +
+                         Ischemic.heart.disease +
+                         Peripheral.artery.disease +
+                         Cerebrovascular.disease + 
+                         Age.at.RRT.onset:Calendar.year+
+                         Age.at.RRT.onset:Sex + 
+                         Age.at.RRT.onset:Primary.kidney.disease +
+                         Age.at.RRT.onset:Hypertension +
+                         Age.at.RRT.onset:Diabetes +
+                         Age.at.RRT.onset:Ischemic.heart.disease +
+                         Age.at.RRT.onset:Peripheral.artery.disease +
+                         Age.at.RRT.onset:Cerebrovascular.disease +
+                         Sex:Calendar.year +
+                         Sex:Primary.kidney.disease +
+                         Sex:Hypertension +
+                         Sex:Diabetes +
+                         Sex:Ischemic.heart.disease +
+                         Sex:Peripheral.artery.disease +
+                         Sex:Cerebrovascular.disease),
+                 complete(imputed.data, action = i)))
+  
+  RRT.under.dialysis.mice[,i] <- rowMeans(survival.estimate$analyses[[i]]$surv)
+  print(i)
+}
+
+RRT.under.dialysis.survival.mice <- 
+  rowMeans(RRT.under.dialysis.mice)
+
+remove(RRT.under.dialysis.mice)
+
+# write.table(RRT.under.dialysis.survival.mice,
+#            "RRT.under.dialysis.survival.mice.txt")
+
+
+```
+
+```{r Upload results from HPC, include = FALSE}
+
+# Summary of estimates with MI Boot ####
+# Import results from HPC
+PKT.under.PKT.survival.MI.boot <- 
+  as.vector(read.table("group1.under.1.survival.mice.txt")[,1])
+
+PKT.under.dialysis.survival.MI.boot <- 
+  as.vector(read.table("group1.under.2.survival.mice.txt")[,1])
+
+dialysis.under.PKT.survival.MI.boot <- 
+  as.vector(read.table("group2.under.1.survival.mice.txt")[,1])
+
+dialysis.under.dialysis.survival.MI.boot <- 
+  as.vector(read.table("group2.under.2.survival.mice.txt")[,1])
+
+RRT.under.PKT.survival.MI.boot <- 
+  as.vector(read.table("full.under.1.survival.mice.txt")[,1])
+
+RRT.under.dialysis.survival.MI.boot <- 
+  as.vector(read.table("full.under.2.survival.mice.txt")[,1])
+
+PKT.under.PKT.MI.boot.lower <-
+  as.vector(read.table("group1.under.1.MI.boot.lower.txt")[,1])
+PKT.under.PKT.MI.boot.upper <-
+  as.vector(read.table("group1.under.1.MI.boot.upper.txt")[,1])
+PKT.under.dialysis.MI.boot.lower <-
+  as.vector(read.table("group1.under.2.MI.boot.lower.txt")[,1])
+PKT.under.dialysis.MI.boot.upper <-
+  as.vector(read.table("group1.under.2.MI.boot.upper.txt")[,1])
+PKT.difference.MI.boot.lower <-
+  as.vector(read.table("group1.difference.MI.boot.lower.txt")[,1])
+PKT.difference.MI.boot.upper <-
+  as.vector(read.table("group1.difference.MI.boot.upper.txt")[,1])
+
+dialysis.under.PKT.MI.boot.lower <-
+  as.vector(read.table("group2.under.1.MI.boot.lower.txt")[,1])
+dialysis.under.PKT.MI.boot.upper <-
+  as.vector(read.table("group2.under.1.MI.boot.upper.txt")[,1])
+dialysis.under.dialysis.MI.boot.lower <-
+  as.vector(read.table("group2.under.2.MI.boot.lower.txt")[,1])
+dialysis.under.dialysis.MI.boot.upper <-
+  as.vector(read.table("group2.under.2.MI.boot.upper.txt")[,1])
+dialysis.difference.MI.boot.lower <-
+  as.vector(read.table("group2.difference.MI.boot.lower.txt")[,1])
+dialysis.difference.MI.boot.upper <-
+  as.vector(read.table("group2.difference.MI.boot.upper.txt")[,1])
+
+RRT.under.PKT.MI.boot.lower <-
+  as.vector(read.table("full.under.1.MI.boot.lower.txt")[,1])
+RRT.under.PKT.MI.boot.upper <-
+  as.vector(read.table("full.under.1.MI.boot.upper.txt")[,1])
+RRT.under.dialysis.MI.boot.lower <-
+  as.vector(read.table("full.under.2.MI.boot.lower.txt")[,1])
+RRT.under.dialysis.MI.boot.upper <-
+  as.vector(read.table("full.under.2.MI.boot.upper.txt")[,1])
+RRT.difference.MI.boot.lower <-
+  as.vector(read.table("full.difference.MI.boot.lower.txt")[,1])
+RRT.difference.MI.boot.upper <-
+  as.vector(read.table("full.difference.MI.boot.upper.txt")[,1])
+
+```
+
+```{r Summary of potential outcomes, include = FALSE}
+
+# For time points of interest
+time.points <- seq(0, 25, 5)
+time.points[1] <- 1
+
+PKT.time <- sort(unique(RRT$Follow.up.years[RRT$PKT==1]))
+dialysis.time <- sort(unique(RRT$Follow.up.years[RRT$PKT==0]))
+
+PKT.index <- rep(NA, length(time.points))
+dialysis.index <- rep(NA, length(time.points))
+
+i <- 1
+for (i in 1:length(time.points)) {
+  PKT.index[i] <- 
+    (1:length(PKT.time))[time.points[i] - PKT.time == 
+                           min(time.points[i] - 
+                                 PKT.time[
+                                   PKT.time<time.points[i]])][1]
+  dialysis.index[i] <- 
+    (1:length(dialysis.time))[time.points[i] - dialysis.time == 
+                                min(time.points[i] - 
+                                      dialysis.time[
+                                        dialysis.time<time.points[i]])][1]
+}
+
+
+# Summary
+potential.survival.MI.boot <-
+  matrix(NA, nrow = length(time.points)*3, ncol = 4)
+potential.survival.MI.boot[,1] <- rep(time.points, 3)
+potential.survival.MI.boot[1,1] <- "RRT, 1"
+potential.survival.MI.boot[(1+length(time.points)),1] <- "PKT, 1"
+potential.survival.MI.boot[(1+length(time.points)*2),1] <- "Dialysis, 1"
+
+colnames(potential.survival.MI.boot) <-
+  c("Year(s) after RRT onset",
+    "Survival under PKT (95% CI)",
+    "Survival under dialysis first (95% CI)",
+    "Difference in survival (95% CI)")
+
+i <- 1
+
+for (i in 1:(length(time.points))) {
+  potential.survival.MI.boot[i,2] <-
+    paste(format(round(RRT.under.PKT.survival.MI.boot[PKT.index[i]],
+                       digits = 2), nsmall = 2), " (",
+          format(round(RRT.under.PKT.MI.boot.lower[PKT.index[i]],
+                       digits = 2), nsmall = 2), ", ",
+          format(round(RRT.under.PKT.MI.boot.upper[PKT.index[i]],
+                       digits = 2), nsmall = 2), ")", sep = "")
+  
+  potential.survival.MI.boot[i,3] <-
+    paste(format(round(RRT.under.dialysis.survival.MI.boot[dialysis.index[i]],
+                       digits = 2), nsmall = 2), " (",
+          format(round(RRT.under.dialysis.MI.boot.lower[dialysis.index[i]],
+                       digits = 2), nsmall = 2), ", ",
+          format(round(RRT.under.dialysis.MI.boot.upper[dialysis.index[i]],
+                       digits = 2), nsmall = 2), ")", sep = "")
+  
+  potential.survival.MI.boot[i,4] <-
+    paste(format(round((RRT.under.PKT.survival.MI.boot[PKT.index[i]]-
+                          RRT.under.dialysis.survival.MI.boot[dialysis.index[i]]),
+                       digits = 2), nsmall = 2), " (",
+          format(round(RRT.difference.MI.boot.lower[i],
+                       digits = 2), nsmall = 2),", ",
+          format(round(RRT.difference.MI.boot.upper[i],
+                       digits = 2), nsmall = 2), ")", sep = "")
+  
+  potential.survival.MI.boot[i+6,2] <-
+    paste(format(round(PKT.under.PKT.survival.MI.boot[PKT.index[i]],
+                       digits = 2), nsmall = 2), " (",
+          format(round(PKT.under.PKT.MI.boot.lower[PKT.index[i]],
+                       digits = 2), nsmall = 2), ", ",
+          format(round(PKT.under.PKT.MI.boot.upper[PKT.index[i]],
+                       digits = 2), nsmall = 2), ")", sep = "")
+  
+  potential.survival.MI.boot[i+6,3] <-
+    paste(format(round(PKT.under.dialysis.survival.MI.boot[dialysis.index[i]],
+                       digits = 2), nsmall = 2), " (",
+          format(round(PKT.under.dialysis.MI.boot.lower[dialysis.index[i]],
+                       digits = 2), nsmall = 2), ", ",
+          format(round(PKT.under.dialysis.MI.boot.upper[dialysis.index[i]],
+                       digits = 2), nsmall = 2), ")", sep = "")
+  
+  potential.survival.MI.boot[i+6,4] <-
+    paste(format(round((PKT.under.PKT.survival.MI.boot[PKT.index[i]]-
+                          PKT.under.dialysis.survival.MI.boot[dialysis.index[i]]),
+                       digits = 2), nsmall = 2), " (",
+          format(round(PKT.difference.MI.boot.lower[i],
+                       digits = 2), nsmall = 2), ", ", 
+          format(round(PKT.difference.MI.boot.upper[i],
+                       digits = 2), nsmall = 2), ")", sep = "")
+  
+  potential.survival.MI.boot[i+12,2] <-
+    paste(format(round(dialysis.under.PKT.survival.MI.boot[PKT.index[i]],
+                       digits = 2), nsmall = 2), " (",
+          format(round(dialysis.under.PKT.MI.boot.lower[PKT.index[i]],
+                       digits = 2), nsmall = 2), ", ",
+          format(round(dialysis.under.PKT.MI.boot.upper[PKT.index[i]],
+                       digits = 2), nsmall = 2), ")", sep = "")
+  
+  potential.survival.MI.boot[i+12,3] <- 
+    paste(format(round(dialysis.under.dialysis.survival.MI.boot[dialysis.index[i]],
+                       digits = 2), nsmall = 2), " (",
+          format(round(dialysis.under.dialysis.MI.boot.lower[dialysis.index[i]],
+                       digits = 2), nsmall = 2), ", ",
+          format(round(dialysis.under.dialysis.MI.boot.upper[dialysis.index[i]],
+                       digits = 2), nsmall = 2), ")", sep = "")
+  
+  potential.survival.MI.boot[i+12,4] <- 
+    paste(format(round(
+      (dialysis.under.PKT.survival.MI.boot[PKT.index[i]]-
+         dialysis.under.dialysis.survival.MI.boot[dialysis.index[i]]),
+      digits = 2), nsmall = 2), " (",
+      format(round(dialysis.difference.MI.boot.lower[i],
+                   digits = 2), nsmall = 2), ", ",
+      format(round(dialysis.difference.MI.boot.upper[i],
+                   digits = 2), nsmall = 2), ")", sep = "")
+}
+
+
+```
+
+Table. Average Survival for the different (sub)groups of interest under the two potential treatments
+
+```{r Summary of potential outcomes table, echo = FALSE}
+
+kable(potential.survival.MI.boot, , format = "markdown", align = c('l','c','c','c'))
+
+```
+
+
+
+```{r Patients at risk, include = FALSE}
+
+time.scale <- seq(0, 25, 5)
+PKT.time <- sort(RRT$Follow.up.years[RRT$PKT==1])
+dialysis.time <- sort(RRT$Follow.up.years[RRT$PKT==0])
+
+PKT.at.risk <- rep(NA, length(time.scale))
+for (i in (1:length(time.scale))) {
+  PKT.at.risk[i] <-
+    sum(PKT.time>=time.scale[i])
+}
+
+dialysis.at.risk <- rep(NA, length(time.scale))
+for (i in (1:length(time.scale))) {
+  dialysis.at.risk[i] <-
+    sum(dialysis.time>=time.scale[i])
+}
+
+dialysis.transp.at.risk <- rep(NA, length(time.scale))
+for (i in (1:length(time.scale))) {
+  dialysis.transp.at.risk[i] <-
+    sum(RRT$Follow.up.years[
+      RRT$PKT==0 & RRT$Transplant==1]>=time.scale[i])
+}
+
+RRT.at.risk <- rep(NA, length(time.scale))
+for (i in (1:length(time.scale))) {
+  RRT.at.risk[i] <-
+    sum(RRT$Follow.up.years>=time.scale[i])
+}
+
+```
+
+Figure 5. Unadjusted and adjusted survival curves from RRT onset. 
+
+```{r Standardised survival curves, echo = F, fig.width=10, fig.height=6}
+
+# Failure times
+PKT.failure.time <-
+  basehaz(PKT.model)[,2] 
+dialysis.failure.time <-
+  basehaz(dialysis.model)[,2]
+
+layout.matrix <- 
+  matrix(c(1, 2, 0, 3, 4, 5), 
+         nrow = 2, ncol = 3,
+         byrow = T)
+layout(mat = layout.matrix,
+       heights = c(2, 2, 1), # Heights of the two rows
+       widths = c(2, 2, 1)) # Widths of the two columns
+
+
+colors<-c("#3333B2","#139639")
+
+# KM
+par(mar=c(6, 8, 4, 6))
+plot(KM[1], 
+     lty = 1,
+     col = colors[1],
+     bty="n")
+lines(KM[2], 
+      lty = 2,
+      col = colors[2],
+      bty="n")
+lines(KM.transplant,
+      lty = 3,
+      col="red")
+title("Unadjusted survival curves")
+mtext("Follow-up time from RRT onset (years)", 
+      side = 1, line = 2.5, at = 12.5)
+mtext("At Risk", cex = 0.8,
+      side = 1, line = 3.5, at = -10)
+axis(side = 1, at = time.scale, tick = F, 
+     labels = PKT.at.risk, line = 3.5)
+mtext("PKT", cex = 0.8, 
+      side = 1, line = 4.5, at = -10)
+axis(side = 1, at = time.scale, tick = F, 
+     labels = dialysis.at.risk, line = 4.5)
+mtext("Dialysis*",  cex = 0.8,
+      side = 1, line = 5.5, at = -8.2)
+axis(side = 1, at = time.scale, tick = F, 
+     labels = dialysis.transp.at.risk, line = 5.5)
+mtext("Dialysis**",  cex = 0.8,
+      side = 1, line = 6.5, at = -8)
+mtext("Survivorship Function", 
+      side = 2, line = 2, at = 0.5)
+mtext("A", 
+      side = 3, line = 2, at = -10)
+
+# RRT
+par(mar=c(6, 8, 4, 4))
+plot(x = c(0,PKT.failure.time),
+     y = c(1,RRT.under.PKT.survival),
+     xlab = "",
+     ylab = "",
+     ylim = c(0,1),
+     type = "s",
+     lty = 1,
+     col = colors[1],
+     bty="n")
+lines(x = c(0,PKT.failure.time),
+      y = c(1,RRT.under.PKT.lower),
+      type = "s",
+      lty = 3,
+      col=colors[1])
+lines(x = c(0,PKT.failure.time),
+      y = c(1,RRT.under.PKT.upper),
+      type = "s",
+      lty = 3,
+      col=colors[1])
+lines(x = c(0,dialysis.failure.time),
+      y = c(1,RRT.under.dialysis.survival),
+      type = "s",
+      lty = 2,
+      col = colors[2])
+lines(x = c(0,dialysis.failure.time),
+      y = c(1,RRT.under.dialysis.lower),
+      type = "s",
+      lty = 3,
+      col=colors[2])
+lines(x = c(0,dialysis.failure.time),
+      y = c(1,RRT.under.dialysis.upper),
+      type = "s",
+      lty = 3,
+      col=colors[2])
+title("Survival Curves - RRT population")
+mtext("Follow-up time from RRT onset (years)", 
+      side = 1, line = 2.5, at = 12.5)
+mtext("Survivorship Function", 
+      side = 2, line = 2, at = 0.5)
+mtext("B", 
+      side = 3, line = 2, at = -12)
+
+# PKT
+par(mar=c(6, 8, 6, 4))
+plot(x = c(0,PKT.failure.time),
+     y = c(1,PKT.under.PKT.survival),
+     xlab = "",
+     ylab = "",
+     ylim = c(0,1),
+     type = "s",
+     lty = 1,
+     col = colors[1],
+     bty="n")
+lines(x = c(0,PKT.failure.time),
+      y = c(1,PKT.under.PKT.lower),
+      type = "s",
+      lty = 3,
+      col=colors[1])
+lines(x = c(0,PKT.failure.time),
+      y = c(1,PKT.under.PKT.upper),
+      type = "s",
+      lty = 3,
+      col=colors[1])
+lines(x = c(0,dialysis.failure.time),
+      y = c(1,PKT.under.dialysis.survival),
+      type = "s",
+      lty = 2,
+      col = colors[2])
+lines(x = c(0,dialysis.failure.time),
+      y = c(1,PKT.under.dialysis.lower),
+      type = "s",
+      lty = 3,
+      col=colors[2])
+lines(x = c(0,dialysis.failure.time),
+      y = c(1,PKT.under.dialysis.upper),
+      type = "s",
+      lty = 3,
+      col=colors[2])
+title("Survival Curves - PKT population")
+mtext("Follow-up time from RRT onset (years)", 
+      side = 1, line = 2.5, at = 12.5)
+mtext("Survivorship Function", 
+      side = 2, line = 2, at = 0.5)
+mtext("C", 
+      side = 3, line = 3, at = -10)
+
+# Dialysis
+plot(x = c(0,PKT.failure.time),
+     y = c(1,dialysis.under.PKT.survival),
+     xlab = "",
+     ylab = "",
+     ylim = c(0,1),
+     type = "s",
+     lty = 1,
+     col = colors[1],
+     bty="n")
+lines(x = c(0,PKT.failure.time),
+      y = c(1,dialysis.under.PKT.lower),
+      type = "s",
+      lty = 3,
+      col=colors[1])
+lines(x = c(0,PKT.failure.time),
+      y = c(1,dialysis.under.PKT.upper),
+      type = "s",
+      lty = 3,
+      col=colors[1])
+lines(x = c(0,dialysis.failure.time),
+      y = c(1,dialysis.under.dialysis.survival),
+      type = "s",
+      lty = 2,
+      col = colors[2])
+lines(x = c(0,dialysis.failure.time),
+      y = c(1,dialysis.under.dialysis.lower),
+      type = "s",
+      lty = 3,
+      col=colors[2])
+lines(x = c(0,dialysis.failure.time),
+      y = c(1,dialysis.under.dialysis.upper),
+      type = "s",
+      lty = 3,
+      col=colors[2])
+title("Survival Curves - Dialysis first population")
+mtext("Follow-up time from RRT onset (years)", 
+      side = 1, line = 2.5, at = 12.5)
+mtext("Survivorship Function", 
+      side = 2, line = 2, at = 0.5)
+mtext("D", 
+      side = 3, line = 3, at = -12)
+
+par(mar=c(0, 0, 0, 0))
+frame()
+legend("top", cex = 1.5,
+       c("PKT", 
+         "Dialysis first*",
+         "Dialysis and 
+         transplant**"), 
+       lwd = 1,
+       lty = c(1:3),
+       col = c(colors, "red"),
+       bty="n")
+
+
+```
+
+```{r Summary of potential survival, include = F}
+
+potential.survival <-
+  matrix(NA, nrow = length(time.points)*3, ncol = 4)
+potential.survival[,1] <- rep(time.points, 3)
+potential.survival[1,1] <- "RRT, 1"
+potential.survival[(1+length(time.points)),1] <- "PKT, 1"
+potential.survival[(1+length(time.points)*2),1] <- "Dialysis, 1"
+
+colnames(potential.survival) <-
+  c("Year(s) after RRT onset",
+    "Survival under PKT (95% CI)",
+    "Survival under dialysis first (95% CI)",
+    "Difference in survival (95% CI)")
+
+i <- 1
+
+for (i in 1:(length(time.points))) {
+  potential.survival[i,2] <-
+    paste(format(round(RRT.under.PKT.survival[PKT.index[i]],
+      digits = 2), nsmall = 2), " (",
+      format(round(RRT.under.PKT.lower[PKT.index[i]],
+        digits = 2), nsmall = 2), ", ",
+      format(round(RRT.under.PKT.upper[PKT.index[i]],
+        digits = 2), nsmall = 2), ")", sep = "")
+  
+  potential.survival[i,3] <-
+    paste(format(round(RRT.under.dialysis.survival[dialysis.index[i]],
+      digits = 2), nsmall = 2), " (",
+      format(round(RRT.under.dialysis.lower[dialysis.index[i]],
+        digits = 2), nsmall = 2), ", ",
+      format(round(RRT.under.dialysis.upper[dialysis.index[i]],
+        digits = 2), nsmall = 2), ")", sep = "")
+  
+  potential.survival[i,4] <-
+    paste(format(round((RRT.under.PKT.survival[PKT.index[i]]-
+        RRT.under.dialysis.survival[dialysis.index[i]]),
+      digits = 2), nsmall = 2), " (",
+      RRT.difference.lower[i], ", ", RRT.difference.upper[i], ")", sep = "")
+  
+  potential.survival[i+6,2] <-
+    paste(format(round(PKT.under.PKT.survival[PKT.index[i]],
+      digits = 2), nsmall = 2), " (",
+      format(round(PKT.under.PKT.lower[PKT.index[i]],
+        digits = 2), nsmall = 2), ", ",
+      format(round(PKT.under.PKT.upper[PKT.index[i]],
+        digits = 2), nsmall = 2), ")", sep = "")
+  
+  potential.survival[i+6,3] <-
+    paste(format(round(PKT.under.dialysis.survival[dialysis.index[i]],
+      digits = 2), nsmall = 2), " (",
+      format(round(PKT.under.dialysis.lower[dialysis.index[i]],
+        digits = 2), nsmall = 2), ", ",
+      format(round(PKT.under.dialysis.upper[dialysis.index[i]],
+        digits = 2), nsmall = 2), ")", sep = "")
+  
+  potential.survival[i+6,4] <-
+    paste(format(round((PKT.under.PKT.survival[PKT.index[i]]-
+        PKT.under.dialysis.survival[dialysis.index[i]]),
+      digits = 2), nsmall = 2), " (",
+      PKT.difference.lower[i], ", ", PKT.difference.upper[i], ")", sep = "")
+  
+  potential.survival[i+12,2] <-
+    paste(format(round(dialysis.under.PKT.survival[PKT.index[i]],
+      digits = 2), nsmall = 2), " (",
+      format(round(dialysis.under.PKT.lower[PKT.index[i]],
+        digits = 2), nsmall = 2), ", ",
+      format(round(dialysis.under.PKT.upper[PKT.index[i]],
+        digits = 2), nsmall = 2), ")", sep = "")
+  
+  potential.survival[i+12,3] <- 
+    paste(format(round(dialysis.under.dialysis.survival[dialysis.index[i]],
+      digits = 2), nsmall = 2), " (",
+      format(round(dialysis.under.dialysis.lower[dialysis.index[i]],
+        digits = 2), nsmall = 2), ", ",
+      format(round(dialysis.under.dialysis.upper[dialysis.index[i]],
+        digits = 2), nsmall = 2), ")", sep = "")
+  
+  potential.survival[i+12,4] <- 
+    paste(format(round(
+      (dialysis.under.PKT.survival[PKT.index[i]]-
+         dialysis.under.dialysis.survival[dialysis.index[i]]),
+      digits = 2), nsmall = 2), " (",
+      dialysis.difference.lower[i], ", ", dialysis.difference.upper[i], ")", sep = "")
+}
+
+```
+
+
+
+```{r Comparison with IPW, include = F}
+
+mice.weight.pool <- 
+  matrix(NA, ncol = imputed.data$m,
+         nrow = nrow(RRT))
+
+i <- 1
+
+# Not possible to adjust for more than 20 covariates
+# Interactions sex*comorbidities avoided
+
+for (i in 1:imputed.data$m) {
+  mice.weight <- 
+    with(imputed.data, 
+         ipwpoint(exposure=PKT,
+                  family="binomial",
+                  link="logit",
+                  numerator = ~1,
+                  denominator=
+                    ~Age.at.RRT.onset +
+                    Calendar.year+
+                    Sex + 
+                    Region + 
+                    Primary.kidney.disease +
+                    Hypertension +
+                    Diabetes +
+                    Ischemic.heart.disease +
+                    Peripheral.artery.disease +
+                    Cerebrovascular.disease+
+                    Age.at.RRT.onset:Calendar.year+
+                    Age.at.RRT.onset:Sex + 
+                    Age.at.RRT.onset:Primary.kidney.disease +
+                    Age.at.RRT.onset:Hypertension +
+                    Age.at.RRT.onset:Diabetes +
+                    Age.at.RRT.onset:Ischemic.heart.disease +
+                    Age.at.RRT.onset:Peripheral.artery.disease +
+                    Age.at.RRT.onset:Cerebrovascular.disease+
+                    Sex:Calendar.year +
+                    Sex:Primary.kidney.disease,
+                  complete(imputed.data, action = i)))
+  
+  mice.weight.pool[,i] <- mice.weight$analyses[[i]]$ipw.weights
+  print(i)
+}
+
+IPW.weight <- rowMeans(mice.weight.pool) 
+
+IPW.mice <-
+  survfit(Surv(Follow.up.years, Death) ~ PKT,
+          weights = IPW.weight,
+          data = RRT,
+          conf.type = "log-log")
+
+```
+
+
+```{r KM with IPW, echo=FALSE, hold = TRUE, fig.width=8, fig.height=6}
+
+PKT.failure.time <- unique(sort(RRT$Follow.up.years[RRT$PKT==1]))
+dialysis.failure.time <- unique(sort(RRT$Follow.up.years[RRT$PKT==0]))
+
+more.colors <- hue_pal(direction = -1)(6)
+
+par(mfrow=c(1,1),
+    mar=c(4, 4, 2, 15),
+    xpd = T)
+
+plot(x = c(0,PKT.failure.time),
+     y = c(1,PKT.under.PKT.survival.MI.boot),
+     lwd = 2,
+     col = more.colors[1],
+     type = "s",
+     bty="n",
+     xlab = "Follow-up time from RRT onset (years)",
+     ylab = "Survivorship Function",
+     ylim = c(0,1))
+lines(x = c(0,PKT.failure.time),
+      y = c(1,PKT.under.PKT.MI.boot.upper),
+      lty = 2,
+      lwd = 2,
+      col = more.colors[1])
+lines(x = c(0,PKT.failure.time),
+      y = c(1,PKT.under.PKT.MI.boot.lower),
+      lty = 2,
+      lwd = 2,
+      col = more.colors[1])
+lines(KM[1],
+      lwd = 2,
+      col = more.colors[2])
+lines(IPW.mice[2],
+      lwd = 2,
+      col = more.colors[3])
+lines(IPW.mice[1],
+      lwd = 2,
+      col = more.colors[5])
+lines(KM[2],
+      lwd = 2,
+      col = more.colors[6])
+lines(x = c(0,dialysis.failure.time),
+      y = c(1,dialysis.under.dialysis.survival.MI.boot),
+      lwd = 2,
+      col = more.colors[4])
+lines(x = c(0,dialysis.failure.time),
+      y = c(1,dialysis.under.dialysis.MI.boot.upper),
+      lwd = 2,
+      lty = 2,
+      col = more.colors[4])
+lines(x = c(0,dialysis.failure.time),
+      y = c(1,dialysis.under.dialysis.MI.boot.lower),
+      lwd = 2,
+      lty = 2,
+      col = more.colors[4])
+
+
+legend(28, 0.8, 
+       c("PKT - standardised",
+         "PKT - KM", 
+         "PKT - IPW",
+         "Dialysis - standardised",
+         "Dialysis - KM", 
+         "Dialysis - IPW"), 
+       lty = 1,
+       lwd = 2,
+       col = more.colors,
+       bty="n")
+
+
+```
+
+
+```{r Difference in risk at 10 years, include = F}
+
+PKT.bootstrap.10y <-
+  read.table("group1.bootstrap.10y.1.txt")
+
+dialysis.bootstrap.10y <-
+  read.table("group2.bootstrap.10y.1.txt")
+
+```
+
+```{r Difference in risk at 10 years statement, echo = F}
+
+paste("The estimated benefit under PKT was bigger for the dialysis group:  difference in risk reduction",
+  format(round(
+  (dialysis.under.PKT.survival[PKT.index[3]]-
+     dialysis.under.dialysis.survival[dialysis.index[3]])-
+    (PKT.under.PKT.survival[PKT.index[3]]-
+       PKT.under.dialysis.survival[dialysis.index[3]]),
+  digits = 2), nsmall = 2), " (",
+  format(round(quantile((rowMeans(PKT.bootstrap.10y[,RRT$PKT==0])-
+                         rowMeans(dialysis.bootstrap.10y[,RRT$PKT==0]))-
+                        (rowMeans(PKT.bootstrap.10y[,RRT$PKT==1])-
+                           rowMeans(dialysis.bootstrap.10y[,RRT$PKT==1])), 0.025),
+             digits = 2), nsmall = 2), ", ", 
+  format(round(quantile((rowMeans(PKT.bootstrap.10y[,RRT$PKT==0])-
+                         rowMeans(dialysis.bootstrap.10y[,RRT$PKT==0]))-
+                        (rowMeans(PKT.bootstrap.10y[,RRT$PKT==1])-
+                           rowMeans(dialysis.bootstrap.10y[,RRT$PKT==1])), 0.975),
+             digits = 2), nsmall = 2), ")", sep = "")
+
+```
+
+Sensitivity analyses
+
+```{r Models excluding Age, include = FALSE}
+
+# EXCLUDING AGE
+# Not including comorbidities
+Cox.RRT.no.age <- as.data.frame(cbind(
+  RRT$Follow.up.years,
+  RRT$Death,
+  RRT$Sex,
+  ifelse(RRT$Region=="Uppsala/Orebro",1,0),
+  ifelse(RRT$Region=="Northern",1,0),
+  ifelse(RRT$Region=="Southern",1,0),
+  ifelse(RRT$Region=="Southeastern",1,0),
+  ifelse(RRT$Region=="Western",1,0),
+  ifelse(RRT$Primary.kidney.disease=="Glomerulonephritis",1,0),
+  ifelse(RRT$Primary.kidney.disease=="Uremia of unknown cause",1,0),
+  ifelse(RRT$Primary.kidney.disease=="Polycystic kidney disease",1,0),
+  ifelse(RRT$Primary.kidney.disease=="Pyelonephritis",1,0),
+  ifelse(RRT$Primary.kidney.disease=="Other" | 
+           RRT$Primary.kidney.disease=="Hypertensive nephropathy",1,0),
+  RRT$Calendar.year))
+
+colnames(Cox.RRT.no.age) <- c("Follow.up.years",
+                       "Death",
+                       "Sex",
+                       "Uppsala",
+                       "Northern",
+                       "Southern",
+                       "Southeastern",
+                       "Western",
+                       "Glomerulonephritis",
+                       "Uremia.unknown.cause",
+                       "Polycystic.kidney.disease",
+                       "Pyelonephritis",
+                       "Other",
+                       "Calendar.year")
+
+# Model matrix for survival
+
+# Define survival outcome 
+survival.outcome <- Surv(
+  time = Cox.RRT.no.age[,1],
+  event = Cox.RRT.no.age[,2])
+
+# Time and event not included as covariates
+Cox.RRT.no.age <- Cox.RRT.no.age[,-(1:2)]
+Cox.RRT.no.age <-
+  as.data.frame(scale(Cox.RRT.no.age, center = T, scale = F))
+
+# # Not with age, region, calendar year
+Sex <- Cox.RRT.no.age$Sex
+sex.interaction <- 
+  as.formula(survival.outcome ~ Sex*.)
+sex.interaction  <- 
+  model.matrix(sex.interaction,
+               Cox.RRT.no.age[,-c(3:7)])[,-(1:(length(Cox.RRT.no.age[,-c(3:7)])+2))]
+Cox.RRT.no.age <- 
+  cbind.data.frame(Cox.RRT.no.age,
+                   sex.interaction)
+
+# Fitting model on PKT group
+PKT.model.no.age <-
+  coxph(Surv(RRT$Follow.up.years[RRT$PKT==1],
+             RRT$Death[RRT$PKT==1])~ ., 
+        data = Cox.RRT.no.age[RRT$PKT==1,])
+
+# Summary of PKT model 
+PKT.model.no.age.summary <- 
+  matrix(NA, nrow = ncol(Cox.RRT.no.age), ncol = 3)
+
+PKT.model.no.age.summary[,1] <-
+  format(round(summary(PKT.model.no.age)[[7]][,1], digits = 2), nsmall = 2)
+
+PKT.model.no.age.summary[,2] <-
+  format(round(summary(PKT.model.no.age)[[7]][,3], digits = 2), nsmall = 2)
+
+PKT.model.no.age.summary[,3] <-
+  paste(format(round(summary(PKT.model.no.age)[[8]][,1], 
+                     digits = 2), nsmall = 2), " (",
+        format(round(summary(PKT.model.no.age)[[8]][,3], 
+                     digits = 2), nsmall = 2),", ", 
+        format(round(summary(PKT.model.no.age)[[8]][,4], 
+                     digits = 2), nsmall = 2), ")", sep = "")
+
+rownames(PKT.model.no.age.summary) <- 
+  colnames(Cox.RRT.no.age)
+colnames(PKT.model.no.age.summary) <- 
+  c("Beta","SE","HR (95% CI)")
+
+# Predicted survival under PKT treatment
+# for every patient in PKT group
+PKT.under.PKT <- 
+  survfit(PKT.model.no.age,
+          Cox.RRT.no.age[RRT$PKT==1,])
+# Average survival
+PKT.under.PKT.survival.no.age <-
+  rowMeans(PKT.under.PKT$surv)
+
+# Predicted survival under PKT treatment
+# for every patient in the dialysis group
+dialysis.under.PKT <- 
+  survfit(PKT.model.no.age,
+          Cox.RRT.no.age[RRT$PKT==0,])
+# Average survival
+dialysis.under.PKT.survival.no.age <-
+  rowMeans(dialysis.under.PKT$surv)
+
+# Predicted survival under PKT treatment
+# for every patient in the full group
+RRT.under.PKT <- 
+  cbind(PKT.under.PKT$surv,
+        dialysis.under.PKT$surv)
+# Average survival
+RRT.under.PKT.survival.no.age <-
+  rowMeans(RRT.under.PKT)
+
+remove(PKT.under.PKT, dialysis.under.PKT, RRT.under.PKT)
+
+
+# Fitting model on dialysis group
+dialysis.model.no.age <-
+  coxph(Surv(RRT$Follow.up.years[RRT$PKT==0],
+             RRT$Death[RRT$PKT==0])~ ., 
+        data = Cox.RRT.no.age[RRT$PKT==0,])
+
+# Summary of dialysis model 
+dialysis.model.no.age.summary <- 
+  matrix(NA, nrow = ncol(Cox.RRT.no.age), ncol = 3)
+
+dialysis.model.no.age.summary[,1] <-
+  format(round(summary(dialysis.model.no.age)[[7]][,1], 
+               digits = 2), nsmall = 2)
+
+dialysis.model.no.age.summary[,2] <-
+  format(round(summary(dialysis.model.no.age)[[7]][,3], 
+               digits = 2), nsmall = 2)
+
+dialysis.model.no.age.summary[,3] <-
+  paste(format(round(summary(dialysis.model.no.age)[[8]][,1], 
+                     digits = 2), nsmall = 2), " (",
+        format(round(summary(dialysis.model.no.age)[[8]][,3], 
+                     digits = 2), nsmall = 2),", ", 
+        format(round(summary(dialysis.model.no.age)[[8]][,4], 
+                     digits = 2), nsmall = 2), ")", sep = "")
+
+rownames(dialysis.model.no.age.summary) <- 
+  colnames(Cox.RRT.no.age)
+colnames(dialysis.model.no.age.summary) <- 
+  c("Beta","SE","HR (95% CI)")
+
+# Predicted survival under dialysis treatment
+# for every patient in PKT group
+PKT.under.dialysis <- 
+  survfit(dialysis.model.no.age,
+          Cox.RRT.no.age[RRT$PKT==1,])
+# Average survival
+PKT.under.dialysis.survival.no.age <-
+  rowMeans(PKT.under.dialysis$surv)
+
+# Predicted survival under dialysis treatment
+# for every patient in the dialysis group
+dialysis.under.dialysis <- 
+  survfit(dialysis.model.no.age,
+          Cox.RRT.no.age[RRT$PKT==0,])
+# Average survival
+dialysis.under.dialysis.survival.no.age <-
+  rowMeans(dialysis.under.dialysis$surv)
+
+# Predicted survival under dialysis treatment
+# for every patient in the full group
+RRT.under.dialysis <- 
+  cbind(PKT.under.dialysis$surv,
+        dialysis.under.dialysis$surv)
+# Average survival
+RRT.under.dialysis.survival.no.age <-
+  rowMeans(RRT.under.dialysis)
+
+remove(PKT.under.dialysis, dialysis.under.dialysis, RRT.under.dialysis)
+
+```
+
+```{r Models including Age, include=FALSE}
+
+# Not including comorbidities
+Cox.RRT <- as.data.frame(cbind(
+  RRT$Follow.up.years,
+  RRT$Death,
+  RRT$Age.at.RRT.onset,
+  RRT$Sex,
+  ifelse(RRT$Region=="Uppsala/Orebro",1,0),
+  ifelse(RRT$Region=="Northern",1,0),
+  ifelse(RRT$Region=="Southern",1,0),
+  ifelse(RRT$Region=="Southeastern",1,0),
+  ifelse(RRT$Region=="Western",1,0),
+  ifelse(RRT$Primary.kidney.disease=="Glomerulonephritis",1,0),
+  ifelse(RRT$Primary.kidney.disease=="Uremia of unknown cause",1,0),
+  ifelse(RRT$Primary.kidney.disease=="Polycystic kidney disease",1,0),
+  ifelse(RRT$Primary.kidney.disease=="Pyelonephritis",1,0),
+  ifelse(RRT$Primary.kidney.disease=="Other" | 
+           RRT$Primary.kidney.disease=="Hypertensive nephropathy",1,0),
+  RRT$Calendar.year))
+
+colnames(Cox.RRT) <- c("Follow.up.years",
+                       "Death",
+                       "Age.at.RRT.onset",
+                       "Sex",
+                       "Uppsala",
+                       "Northern",
+                       "Southern",
+                       "Southeastern",
+                       "Western",
+                       "Glomerulonephritis",
+                       "Uremia.unknown.cause",
+                       "Polycystic.kidney.disease",
+                       "Pyelonephritis",
+                       "Other",
+                       "Calendar.year")
+
+# Model matrix for survival
+
+# Define survival outcome 
+survival.outcome <- Surv(
+  time = Cox.RRT[,1],
+  event = Cox.RRT[,2])
+
+# Time and event not included as covariates
+Cox.RRT <- Cox.RRT[,-(1:2)]
+Cox.RRT <-
+  as.data.frame(scale(Cox.RRT, center = T, scale = F))
+
+# Including interactions with age and sex
+# Not with region
+Age.at.RRT.onset <- Cox.RRT$Age.at.RRT.onset
+age.interaction <- 
+  as.formula(survival.outcome ~ Age.at.RRT.onset*.)
+age.interaction  <- 
+  model.matrix(age.interaction,
+               Cox.RRT[,-c(3:7)])[,-(1:(length(Cox.RRT[,-c(3:7)])+1))]
+
+# # Not with age and region
+Sex <- Cox.RRT$Sex
+sex.interaction <- 
+  as.formula(survival.outcome ~ Sex*.)
+sex.interaction  <- 
+  model.matrix(sex.interaction,
+               Cox.RRT[,-c(3:7)])[,-(1:(length(Cox.RRT[,-c(3:7)])+2))]
+Cox.RRT <- 
+  cbind.data.frame(Cox.RRT,
+                   age.interaction,
+                   sex.interaction)
+
+# Fitting model on PKT group
+PKT.model <-
+  coxph(Surv(RRT$Follow.up.years[RRT$PKT==1],
+             RRT$Death[RRT$PKT==1])~ ., 
+        data = Cox.RRT[RRT$PKT==1,])
+
+# Predicted survival under PKT treatment
+# for every patient in PKT group
+PKT.under.PKT <- 
+  survfit(PKT.model,
+          Cox.RRT[RRT$PKT==1,])
+# Average survival
+PKT.under.PKT.survival <-
+  rowMeans(PKT.under.PKT$surv)
+
+# Predicted survival under PKT treatment
+# for every patient in the dialysis group
+dialysis.under.PKT <- 
+  survfit(PKT.model,
+          Cox.RRT[RRT$PKT==0,])
+# Average survival
+dialysis.under.PKT.survival <-
+  rowMeans(dialysis.under.PKT$surv)
+
+# Predicted survival under PKT treatment
+# for every patient in the full group
+RRT.under.PKT <- 
+  cbind(PKT.under.PKT$surv,
+        dialysis.under.PKT$surv)
+# Average survival
+RRT.under.PKT.survival <-
+  rowMeans(RRT.under.PKT)
+
+remove(PKT.under.PKT, dialysis.under.PKT, RRT.under.PKT)
+
+# Fitting model on dialysis group
+dialysis.model <-
+  coxph(Surv(RRT$Follow.up.years[RRT$PKT==0],
+             RRT$Death[RRT$PKT==0])~ ., 
+        data = Cox.RRT[RRT$PKT==0,])
+
+# Predicted survival under dialysis treatment
+# for every patient in PKT group
+PKT.under.dialysis <- 
+  survfit(dialysis.model,
+          Cox.RRT[RRT$PKT==1,])
+# Average survival
+PKT.under.dialysis.survival <-
+  rowMeans(PKT.under.dialysis$surv)
+
+# Predicted survival under dialysis treatment
+# for every patient in the dialysis group
+dialysis.under.dialysis <- 
+  survfit(dialysis.model,
+          Cox.RRT[RRT$PKT==0,])
+# Average survival
+dialysis.under.dialysis.survival <-
+  rowMeans(dialysis.under.dialysis$surv)
+
+# Predicted survival under dialysis treatment
+# for every patient in the full group
+RRT.under.dialysis <- 
+  cbind(PKT.under.dialysis$surv,
+        dialysis.under.dialysis$surv)
+# Average survival
+RRT.under.dialysis.survival <-
+  rowMeans(RRT.under.dialysis)
+
+remove(PKT.under.dialysis, dialysis.under.dialysis, RRT.under.dialysis)
+
+```
+
+
+```{r Models cohort 1998-2017, include=FALSE}
+
+# Fitting model on PKT group
+PKT.model.simple.1998.2017 <-
+  coxph(Surv(RRT$Follow.up.years[RRT$PKT==1 & 
+                                   RRT$Calendar.year>=1998],
+             RRT$Death[RRT$PKT==1 &
+                         RRT$Calendar.year>=1998])~ ., 
+        data = Cox.RRT[RRT$PKT==1 &
+                               RRT$Calendar.year>=1998,])
+
+# Predicted survival under PKT treatment
+# for every patient in PKT group
+PKT.under.PKT <- 
+  survfit(PKT.model.simple.1998.2017,
+          Cox.RRT[RRT$PKT==1 &
+                    RRT$Calendar.year>=1998,])
+# Average survival
+PKT.under.PKT.simple.1998.2017 <-
+  rowMeans(PKT.under.PKT$surv)
+
+# Predicted survival under PKT treatment
+# for every patient in the dialysis group
+dialysis.under.PKT <- 
+  survfit(PKT.model.simple.1998.2017,
+          Cox.RRT[RRT$PKT==1 &
+                    RRT$Calendar.year>=1998,])
+# Average survival
+dialysis.under.PKT.simple.1998.2017 <-
+  rowMeans(dialysis.under.PKT$surv)
+
+# Predicted survival under PKT treatment
+# for every patient in the full group
+RRT.under.PKT <- 
+  cbind(PKT.under.PKT$surv,
+        dialysis.under.PKT$surv)
+# Average survival
+RRT.under.PKT.simple.1998.2017 <-
+  rowMeans(RRT.under.PKT)
+
+remove(PKT.under.PKT, dialysis.under.PKT, RRT.under.PKT)
+
+# Fitting model on dialysis group
+dialysis.model.simple.1998.2017 <-
+  coxph(Surv(RRT$Follow.up.years[RRT$PKT==0 & 
+                                   RRT$Calendar.year>=1998],
+             RRT$Death[RRT$PKT==0 & 
+                         RRT$Calendar.year>=1998])~ ., 
+        data = Cox.RRT[RRT$PKT==0 & 
+                         RRT$Calendar.year>=1998,])
+
+# Predicted survival under dialysis treatment
+# for every patient in PKT group
+PKT.under.dialysis <- 
+  survfit(dialysis.model.simple.1998.2017,
+          Cox.RRT[RRT$PKT==1 & 
+                         RRT$Calendar.year>=1998,])
+# Average survival
+PKT.under.dialysis.simple.1998.2017 <-
+  rowMeans(PKT.under.dialysis$surv)
+
+# Predicted survival under dialysis treatment
+# for every patient in the dialysis group
+dialysis.under.dialysis <- 
+  survfit(dialysis.model.simple.1998.2017,
+          Cox.RRT[RRT$PKT==0 & 
+                         RRT$Calendar.year>=1998,])
+# Average survival
+dialysis.under.dialysis.simple.1998.2017 <-
+  rowMeans(dialysis.under.dialysis$surv)
+
+# Predicted survival under dialysis treatment
+# for every patient in the full group
+RRT.under.dialysis <- 
+  cbind(PKT.under.dialysis$surv,
+        dialysis.under.dialysis$surv)
+# Average survival
+RRT.under.dialysis.simple.1998.2017 <-
+  rowMeans(RRT.under.dialysis)
+
+remove(PKT.under.dialysis, dialysis.under.dialysis, RRT.under.dialysis)
+
+```
+
+```{r Standardised curves with and without age, echo = F}
+
+# CURVES AGE VS NO AGE
+layout.matrix <- 
+  matrix(c(1, 2, 3), 
+         nrow = 1, ncol = 3,
+         byrow = T)
+layout(mat = layout.matrix,
+       heights = c(1, 2, 2), # Heights of the two rows
+       widths = c(1, 2, 2)) # Widths of the two columns
+
+
+colors<-c("#3333B2","#139639", "#FF0066", "#FF9900")
+
+# PKT
+par(mar=c(1, 1, 6, 1))
+frame()
+legend("top", cex = 2,
+       c("Full population: 
+         1991-2017",
+         "",
+         "",
+         "Age impact"),
+       col = "white",
+       bty="n")
+
+legend("center", cex = 1.5,
+       c("PKT: with age", 
+         "Dialysis first: 
+         with age",
+         "PKT: no age", 
+         "Dialysis first: 
+         no age"), 
+       lwd = 1,
+       lty = c(1,1,3,3),
+       col = c(colors[1:2], colors[3:4]),
+       bty="n")
+
+# PKT
+par(mar=c(6, 8, 6, 4))
+plot(x = c(0,PKT.failure.time),
+     y = c(1,PKT.under.PKT.survival),
+     xlab = "",
+     ylab = "",
+     ylim = c(0,1),
+     type = "s",
+     lty = 1,
+     col = colors[1],
+     bty="n")
+lines(x = c(0,dialysis.failure.time),
+      y = c(1,PKT.under.dialysis.survival),
+      type = "s",
+      lty = 1,
+      col = colors[2])
+lines(x = c(0,PKT.failure.time),
+      y = c(1,PKT.under.PKT.survival.no.age),
+      xlab = "",
+      ylab = "",
+      ylim = c(0,1),
+      type = "s",
+      lty = 3,
+      col = colors[3],
+      bty="n")
+lines(x = c(0,dialysis.failure.time),
+      y = c(1,PKT.under.dialysis.survival.no.age),
+      type = "s",
+      lty = 3,
+      col = colors[4])
+title("Survival Curves - PKT population")
+mtext("Follow-up time from RRT onset (years)", 
+      side = 1, line = 2.5, at = 12.5)
+mtext("Survivorship Function", 
+      side = 2, line = 2, at = 0.5)
+mtext("A", 
+      side = 3, line = 3, at = -7)
+
+# Dialysis
+plot(x = c(0,PKT.failure.time),
+     y = c(1,dialysis.under.PKT.survival),
+     xlab = "",
+     ylab = "",
+     ylim = c(0,1),
+     type = "s",
+     lty = 1,
+     col = colors[1],
+     bty="n")
+lines(x = c(0,dialysis.failure.time),
+      y = c(1,dialysis.under.dialysis.survival),
+      type = "s",
+      lty = 1,
+      col = colors[2])
+lines(x = c(0,PKT.failure.time),
+      y = c(1,dialysis.under.PKT.survival.no.age),
+      xlab = "",
+      ylab = "",
+      ylim = c(0,1),
+      type = "s",
+      lty = 3,
+      col = colors[3],
+      bty="n")
+lines(x = c(0,dialysis.failure.time),
+      y = c(1,dialysis.under.dialysis.survival.no.age),
+      type = "s",
+      lty = 3,
+      col = colors[4])
+title("Survival Curves - Dialysis first/only population")
+mtext("Follow-up time from RRT onset (years)", 
+      side = 1, line = 2.5, at = 12.5)
+mtext("Survivorship Function", 
+      side = 2, line = 2, at = 0.5)
+mtext("B", 
+      side = 3, line = 3, at = -8)
+
+
+
+```
+
+```{r G-Estimation for 1 parameter: Wide range, include = F}
+
+initial.possible.psi <- seq(from = -3, to = 3, by = 0.1)
+
+# Backtransformed time from RRT to transplant with different psi
+transformed.time.dialysis.transplant <- 
+  matrix(NA, nrow = nrow(RRT), ncol = length(initial.possible.psi))
+i <- 1
+
+for (i in 1:length(initial.possible.psi)){
+  transformed.time.dialysis.transplant[,i] <- 
+    RRT$Time.dialysis.transplant*exp(-initial.possible.psi[i])
+}
+
+# Adding time from transplant onwards
+transformed.time.dialysis.death <- 
+  transformed.time.dialysis.transplant + 
+  RRT$Follow.up.transplant
+
+Cox.psi <- cbind.data.frame(transformed.time.dialysis.death,
+                            Cox.RRT)
+
+PKT.coef <- rep(NA, length(initial.possible.psi))
+PKT.se <- rep(NA, length(initial.possible.psi))
+
+i <- 1
+for (i in 1:length(initial.possible.psi)){
+  Model.psi <- 
+    coxph(Surv(Cox.psi[,i],Cox.psi$Death)~.,
+          data = Cox.psi[,(length(initial.possible.psi)+3):
+                           ncol(Cox.psi)])
+  PKT.coef[i] <- summary(Model.psi)[[7]][14,1]
+  PKT.se[i] <- summary(Model.psi)[[7]][14,3]
+  print(paste("Loop #", i, "and",
+              (length(initial.possible.psi)-i), "remaining"))
+}
+
+initial.PKT.psi <- PKT.coef/PKT.se
+
+```
+
+```{r Plot for wide Range of Psis, echo = F}
+
+# Plot for wide Range of Psis 
+plot(initial.possible.psi,
+     initial.PKT.psi,
+     main = "",
+     xlab = "",
+     ylab = "",
+     col = "green",
+     xaxt = "n")
+title(main = TeX('Possible $\\psi$ for time without transplant'),
+      line = 2)
+title(TeX('in dialysis group using data from RRT onward'),
+      line = 1)
+axis(side = 1, at = -3:3, labels = -3:3, line = 0)
+mtext(TeX('$\\psi$'),1,line=1,at=-3.5)
+axis(side = 1, at = -3:3, labels = round(exp(3:-3), digits = 2), line = 3)
+mtext(TeX('$\\exp(-\\psi$)'),1,line=3,at=-3.5)
+mtext(TeX('$\\frac{\\beta}{SE}$'), 2, line=1.8)
+abline(h=0, lty=3, col = "blue")
+abline(h=1.96, lty=3, col = "grey")
+abline(h=-1.96, lty=3, col = "grey")
+
+
+```
+
+
+```{r G-Estimation for 1 parameter: Narrow range, include = F}
+
+possible.psi <- seq(from = -2, to = -1, by = 0.001)
+
+# Backtransformed time from RRT to transplant with different psi
+transformed.time.dialysis.transplant <- 
+  matrix(NA, nrow = nrow(RRT), ncol = length(possible.psi))
+
+i <- 1
+
+for (i in 1:length(possible.psi)){
+  transformed.time.dialysis.transplant[,i] <- 
+    RRT$Time.dialysis.transplant*exp(-possible.psi[i])
+}
+
+# Adding time from transplant onwards
+transformed.time.dialysis.death <- 
+  transformed.time.dialysis.transplant + 
+  RRT$Follow.up.transplant
+
+Cox.psi <- cbind.data.frame(transformed.time.dialysis.death,
+                            Cox.RRT)
+
+PKT.coef <- rep(NA, length(possible.psi))
+PKT.se <- rep(NA, length(possible.psi))
+
+i <- 1
+for (i in 1:length(possible.psi)){
+  Model.psi <- 
+    coxph(Surv(Cox.psi[,i],Cox.psi$Death)~.,
+          data = Cox.psi[,(length(possible.psi)+3):
+                           ncol(Cox.psi)])
+  PKT.coef[i] <- summary(Model.psi)[[7]][14,1]
+  PKT.se[i] <- summary(Model.psi)[[7]][14,3]
+  print(paste("Loop #", i, "and",
+              (length(possible.psi)-i), "remaining"))
+}
+
+PKT.psi <- PKT.coef/PKT.se
+
+# Estimated Psi
+estimated.psi <- 
+  possible.psi[c(1:length(possible.psi))[abs(PKT.psi)==min(abs(PKT.psi))]]
+estimated.psi
+estimated.psi.lower <- 
+  possible.psi[c(1:length(possible.psi))
+               [abs(PKT.psi+1.96)==min(abs(PKT.psi+1.96))]]
+estimated.psi.lower
+estimated.psi.upper <- 
+  possible.psi[c(1:length(possible.psi))
+               [abs(PKT.psi-1.96)==min(abs(PKT.psi-1.96))]]
+estimated.psi.upper
+
+# Psi = -1.572 95%CI (-1.374, -1.765)
+
+# Acceleration factor
+acceleration.factor <- 
+  round(exp(-estimated.psi), digits = 3)
+acceleration.factor
+acceleration.factor.lower <- 
+  round(exp(-estimated.psi.lower), digits = 3)
+acceleration.factor.lower
+acceleration.factor.upper <- 
+  round(exp(-estimated.psi.upper), digits = 3)
+acceleration.factor.upper 
+
+# Acceleration factor 4.816 95%CI (3.951, 5.842)
+
+
+```
+
+```{r Plot for narrow range of Psi, echo = F}
+
+plot(possible.psi,
+     PKT.psi,
+     main = "",
+     xlab = "",
+     xaxt = "n",
+     xlim = c(min(possible.psi),max(possible.psi)),
+     ylab = "",
+     ylim = c(-5,5),
+     col = "green",
+     type = "l")
+title(main = TeX('Possible $\\psi$ for time without transplant'),
+      line = 2.5)
+title(TeX('in dialysis group using data from RRT onward'),
+      line = 1)
+axis(side = 1, at = seq(from = -2, to = -1, by = 0.2), 
+     labels = seq(from = -2, to = -1, by = 0.2), line = 0)
+mtext(TeX('$\\psi$'),1,line=1,at=-2.1)
+axis(side = 1, at = seq(from = -2, to = -1, by = 0.2), 
+     labels = round(exp(-seq(from = -2, to = -1, by = 0.2)), digits = 2),
+     line = 3)
+mtext(TeX('$\\exp(-\\psi$)'),1,line=3,at=-2.1)
+mtext(TeX('$\\frac{\\beta}{SE}$'), 2, line=1.8)
+segments(x0 = -3, y0 = 0,
+         x1 = estimated.psi, y=0,
+         lty=3, col = "blue")
+segments(x0=estimated.psi, y0=-6, 
+         x1=estimated.psi, y=0, 
+         lty=3, col = "blue")
+mtext(estimated.psi,1,line=0,at=estimated.psi+0.05)
+mtext(acceleration.factor,1,line=3,at=estimated.psi+0.05)
+segments(x0 = -3, y0 = 1.96,
+         x1 = estimated.psi.upper, y=1.96,
+         lty=3, col = "grey")
+segments(x0=estimated.psi.upper, y0=-6, 
+         x1=estimated.psi.upper, y=1.96, 
+         lty=3, col = "grey")
+mtext(estimated.psi.upper-0.05,1,line=0,at=estimated.psi.upper+0.05)
+mtext(acceleration.factor.upper,1,line=3,at=estimated.psi.upper+0.05)
+segments(x0 = -3, y0 = -1.96,
+         x1 = estimated.psi.lower, y=-1.96,
+         lty=3, col = "grey")
+segments(x0=estimated.psi.lower, y0=-6, 
+         x1=estimated.psi.lower, y=-1.96, 
+         lty=3, col = "grey")
+mtext(estimated.psi.lower,1,line=0,at=estimated.psi.lower+0.05)
+mtext(acceleration.factor.lower,1,line=3,at=estimated.psi.lower+0.05)
+
+
+```
+
+
+
+```{r Summary table Cox model, echo = F}
+# Summary of Cox model for the chosen psi
+psi.indicator <-
+  c(1:length(possible.psi))[possible.psi==estimated.psi]
+
+Model.psi.1 <- 
+  coxph(Surv(Cox.psi[,psi.indicator],Cox.psi$Death)~.,
+        data = Cox.psi[,(length(possible.psi)+3):
+                         ncol(Cox.psi)])
+
+
+Model.psi.1.summary <- 
+  matrix(NA, nrow = ncol(Cox.RRT)-2, ncol = 3)
+
+Model.psi.1.summary[,1] <-
+  format(round(summary(Model.psi.1)[[7]][,1], digits = 2), nsmall = 2)
+
+Model.psi.1.summary[,2] <-
+  format(round(summary(Model.psi.1)[[7]][,3], digits = 2), nsmall = 2)
+
+Model.psi.1.summary[,3] <-
+  paste(format(round(summary(Model.psi.1)[[8]][,1], 
+                     digits = 2), nsmall = 2), " (",
+        format(round(summary(Model.psi.1)[[8]][,3], 
+                     digits = 2), nsmall = 2),", ", 
+        format(round(summary(Model.psi.1)[[8]][,4], 
+                     digits = 2), nsmall = 2), ")", sep = "")
+
+rownames(Model.psi.1.summary) <- 
+  colnames(Cox.RRT[,-c(1,2)])
+colnames(Model.psi.1.summary) <- 
+  c("Beta","SE","HR (95% CI)")
+
+```
+
+```{r Artificial Censoring after 5 years, include = F}
+
+# Select group that entered until 2012
+RRT.5.years <- RRT[RRT$Date.of.RRT < "2013-01-01",]
+# Population 15964
+
+# Possible psi to test: wide range
+possible.psi <- seq(from = -5, to = 5, by = 0.1)
+
+# Backtransformed time from RRT to transplant with different psi
+transformed.time.dialysis.transplant <- 
+  matrix(NA, nrow = nrow(RRT.5.years), ncol = length(possible.psi))
+transformed.death.indicator <-
+  matrix(NA, nrow = nrow(RRT.5.years), ncol = length(possible.psi))
+
+i <- 1
+for (i in 1:length(possible.psi)){
+  transformed.time.dialysis.transplant[,i] <- 
+    RRT.5.years$Time.dialysis.transplant*exp(-possible.psi[i])
+}
+
+# Adding time from transplant onwards
+transformed.time.dialysis.death <- 
+  transformed.time.dialysis.transplant + 
+  RRT.5.years$Follow.up.transplant
+
+# Censoring after 5 years
+transformed.death.indicator <-
+  matrix(NA, nrow = nrow(RRT.5.years), ncol = length(possible.psi))
+
+i <- 1
+for (i in 1:length(possible.psi)) {
+  transformed.death.indicator[,i] <-
+    ifelse(transformed.time.dialysis.death[,i] > 5, 
+           0, RRT.5.years$Death)
+  transformed.time.dialysis.death[,i] <- 
+    ifelse(transformed.time.dialysis.death[,i] > 5, 5, 
+           transformed.time.dialysis.death)
+}
+
+Cox.psi <- 
+  cbind.data.frame(transformed.time.dialysis.death,
+                   transformed.death.indicator,
+                   Cox.RRT[RRT$Date.of.RRT < "2013-01-01",])
+
+PKT.coef <- rep(NA, length(possible.psi))
+PKT.se <- rep(NA, length(possible.psi))
+
+i <- 1
+for (i in 1:length(possible.psi)){
+  Model.psi <- 
+    coxph(Surv(Cox.psi[,i],
+               Cox.psi[,length(possible.psi)+i])~.,
+          data = Cox.psi[,(2*(length(possible.psi)+3)):
+                           ncol(Cox.psi)])
+  PKT.coef[i] <- summary(Model.psi)[[7]][11,1]
+  PKT.se[i] <- summary(Model.psi)[[7]][11,3]
+  print(paste("Loop #", i, "and",
+              (length(possible.psi)-i), "remaining"))
+}
+
+PKT.psi.5 <- PKT.coef/PKT.se
+
+# Estimated Psi
+estimated.psi.5 <- 
+  possible.psi[c(1:length(possible.psi))[abs(PKT.psi.5)==min(abs(PKT.psi.5))]]
+estimated.psi.5
+estimated.psi.5.lower <- 
+  possible.psi[c(1:length(possible.psi))
+               [abs(PKT.psi.5-1.96)==min(abs(PKT.psi.5-1.96))]]
+estimated.psi.5.lower
+estimated.psi.5.upper <- 
+  possible.psi[c(1:length(possible.psi))
+               [abs(PKT.psi.5+1.96)==min(abs(PKT.psi.5+1.96))]]
+estimated.psi.5.upper
+
+# Psi = -2.5 95%CI (-3, -2.1)
+
+# Possible psi to test
+possible.psi <- seq(from = -4, to = -1, by = 0.01)
+
+# Backtransformed time from RRT to transplant with different psi
+transformed.time.dialysis.transplant <- 
+  matrix(NA, nrow = nrow(RRT.5.years), ncol = length(possible.psi))
+
+i <- 1
+
+for (i in 1:length(possible.psi)){
+  transformed.time.dialysis.transplant[,i] <- 
+    RRT.5.years$Time.dialysis.transplant*exp(-possible.psi[i])
+}
+
+# Adding time from transplant onwards
+transformed.time.dialysis.death <- 
+  transformed.time.dialysis.transplant + 
+  RRT.5.years$Follow.up.transplant
+
+# Censoring after 5 years
+transformed.death.indicator <-
+  matrix(NA, nrow = nrow(RRT.5.years), ncol = length(possible.psi))
+
+i <- 1
+for (i in 1:length(possible.psi)) {
+  transformed.death.indicator[,i] <-
+    ifelse(transformed.time.dialysis.death[,i] > 5, 
+           0, RRT.5.years$Death)
+  transformed.time.dialysis.death[,i] <- 
+    ifelse(transformed.time.dialysis.death[,i] > 5, 5, 
+           transformed.time.dialysis.death)
+}
+
+Cox.psi <- 
+  cbind.data.frame(transformed.time.dialysis.death,
+                   transformed.death.indicator,
+                   Cox.RRT[RRT$Date.of.RRT < "2013-01-01",])
+
+PKT.coef <- rep(NA, length(possible.psi))
+PKT.se <- rep(NA, length(possible.psi))
+
+i <- 1
+for (i in 1:length(possible.psi)){
+  Model.psi <- 
+    coxph(Surv(Cox.psi[,i],
+               Cox.psi[,length(possible.psi)+i])~.,
+          data = Cox.psi[,(2*(length(possible.psi)+3)):
+                           ncol(Cox.psi)])
+  PKT.coef[i] <- summary(Model.psi)[[7]][11,1]
+  PKT.se[i] <- summary(Model.psi)[[7]][11,3]
+  print(paste("Loop #", i, "and",
+              (length(possible.psi)-i), "remaining"))
+}
+
+PKT.psi.5 <- PKT.coef/PKT.se
+
+# Estimated Psi
+estimated.psi.5 <- 
+  possible.psi[c(1:length(possible.psi))[abs(PKT.psi.5)==min(abs(PKT.psi.5))]]
+estimated.psi.5
+estimated.psi.5.lower <- 
+  possible.psi[c(1:length(possible.psi))
+               [abs(PKT.psi.5+1.96)==min(abs(PKT.psi.5+1.96))]]
+estimated.psi.5.lower
+estimated.psi.5.upper <- 
+  possible.psi[c(1:length(possible.psi))
+               [abs(PKT.psi.5-1.96)==min(abs(PKT.psi.5-1.96))]]
+estimated.psi.5.upper
+
+# Psi = -2.56 95%CI (-2.09, -3.04)
+
+```
+
+
+```{r Artificial Censoring after 10 years, include = F}
+
+# Select group that entered until 2008
+RRT.10.years <- RRT[RRT$Date.of.RRT < "2008-01-01",]
+# Population 16158
+
+# Censoring after 10 years
+RRT.10.years$Death <- 
+  ifelse(RRT.10.years$Follow.up.years > 10, 0, RRT.10.years$Death)
+RRT.10.years$Follow.up.years <- 
+  ifelse(RRT.10.years$Follow.up.years > 10, 10, 
+         RRT.10.years$Follow.up.years)
+
+# Possible psi to test: wide range
+possible.psi <- seq(from = -5, to = 5, by = 0.1)
+
+# Backtransformed time from RRT to transplant with different psi
+transformed.time.dialysis.transplant <- 
+  matrix(NA, nrow = nrow(RRT.10.years), ncol = length(possible.psi))
+
+i <- 1
+
+for (i in 1:length(possible.psi)){
+  transformed.time.dialysis.transplant[,i] <- 
+    RRT.10.years$Time.dialysis.transplant*exp(-possible.psi[i])
+}
+
+# Adding time from transplant onwards
+transformed.time.dialysis.death <- 
+  transformed.time.dialysis.transplant + 
+  RRT.10.years$Follow.up.transplant
+
+Cox.psi <- cbind.data.frame(transformed.time.dialysis.death,
+                            Cox.RRT[RRT$Date.of.RRT < "2008-01-01",])
+Cox.psi$Death <- RRT.10.years$Death 
+
+PKT.coef <- rep(NA, length(possible.psi))
+PKT.se <- rep(NA, length(possible.psi))
+
+i <- 1
+for (i in 1:length(possible.psi)){
+  Model.psi <- 
+    coxph(Surv(Cox.psi[,i],Cox.psi$Death)~.,
+          data = Cox.psi[,(length(possible.psi)+3):
+                           ncol(Cox.psi)])
+  PKT.coef[i] <- summary(Model.psi)[[7]][20,1]
+  PKT.se[i] <- summary(Model.psi)[[7]][20,3]
+  print(paste("Loop #", i, "and",
+              (length(possible.psi)-i), "remaining"))
+}
+
+PKT.psi.10 <- PKT.coef/PKT.se
+
+# Estimated Psi
+estimated.psi.10 <- 
+  possible.psi[c(1:length(possible.psi))[abs(PKT.psi.10)==min(abs(PKT.psi.10))]]
+estimated.psi.10
+estimated.psi.10.lower <- 
+  possible.psi[c(1:length(possible.psi))
+               [abs(PKT.psi.10+1.96)==min(abs(PKT.psi.10+1.96))]]
+estimated.psi.10.lower
+estimated.psi.10.upper <- 
+  possible.psi[c(1:length(possible.psi))
+               [abs(PKT.psi.10-1.96)==min(abs(PKT.psi.10-1.96))]]
+estimated.psi.10.upper
+
+# Psi = -2.2 95%CI (-1.8, -2.5)
+
+# Possible psi to test
+possible.psi <- seq(from = -3, to = -1, by = 0.001)
+
+# Backtransformed time from RRT to transplant with different psi
+transformed.time.dialysis.transplant <- 
+  matrix(NA, nrow = nrow(RRT.10.years), ncol = length(possible.psi))
+
+i <- 1
+
+for (i in 1:length(possible.psi)){
+  transformed.time.dialysis.transplant[,i] <- 
+    RRT.10.years$Time.dialysis.transplant*exp(-possible.psi[i])
+}
+
+# Adding time from transplant onwards
+transformed.time.dialysis.death <- 
+  transformed.time.dialysis.transplant + 
+  RRT.10.years$Follow.up.transplant
+
+Cox.psi <- cbind.data.frame(transformed.time.dialysis.death,
+                            Cox.RRT[RRT$Date.of.RRT < "2008-01-01",])
+Cox.psi$Death <- RRT.10.years$Death 
+
+PKT.coef <- rep(NA, length(possible.psi))
+PKT.se <- rep(NA, length(possible.psi))
+
+i <- 1
+for (i in 1:length(possible.psi)){
+  Model.psi <- 
+    coxph(Surv(Cox.psi[,i],Cox.psi$Death)~.,
+          data = Cox.psi[,(length(possible.psi)+3):
+                           ncol(Cox.psi)])
+  PKT.coef[i] <- summary(Model.psi)[[7]][20,1]
+  PKT.se[i] <- summary(Model.psi)[[7]][20,3]
+  print(paste("Loop #", i, "and",
+              (length(possible.psi)-i), "remaining"))
+}
+
+PKT.psi.10 <- PKT.coef/PKT.se
+
+# Estimated Psi
+estimated.psi.10 <- 
+  possible.psi[c(1:length(possible.psi))[abs(PKT.psi.10)==min(abs(PKT.psi.10))]]
+estimated.psi.10
+estimated.psi.10.lower <- 
+  possible.psi[c(1:length(possible.psi))
+               [abs(PKT.psi.10+1.96)==min(abs(PKT.psi.10+1.96))]]
+estimated.psi.10.lower
+estimated.psi.10.upper <- 
+  possible.psi[c(1:length(possible.psi))
+               [abs(PKT.psi.10-1.96)==min(abs(PKT.psi.10-1.96))]]
+estimated.psi.10.upper
+
+# Psi = -2.151 95%CI (-1.844, -2.459)
+
+
+```
+
+
+```{r Artificial Censoring after 15 years, include = F}
+
+# Select group that entered until 2008
+RRT.15.years <- RRT[RRT$Date.of.RRT < "2003-01-01",]
+# Population 11342
+
+# Censoring after 10 years
+RRT.15.years$Death <- 
+  ifelse(RRT.15.years$Follow.up.years > 15, 0, RRT.15.years$Death)
+RRT.15.years$Follow.up.years <- 
+  ifelse(RRT.15.years$Follow.up.years > 15, 15, 
+         RRT.15.years$Follow.up.years)
+
+# Possible psi to test: wide range
+possible.psi <- seq(from = -5, to = 5, by = 0.1)
+
+# Backtransformed time from RRT to transplant with different psi
+transformed.time.dialysis.transplant <- 
+  matrix(NA, nrow = nrow(RRT.15.years), ncol = length(possible.psi))
+
+i <- 1
+
+for (i in 1:length(possible.psi)){
+  transformed.time.dialysis.transplant[,i] <- 
+    RRT.15.years$Time.dialysis.transplant*exp(-possible.psi[i])
+}
+
+# Adding time from transplant onwards
+transformed.time.dialysis.death <- 
+  transformed.time.dialysis.transplant + 
+  RRT.15.years$Follow.up.transplant
+
+Cox.psi <- cbind.data.frame(transformed.time.dialysis.death,
+                            Cox.RRT[RRT$Date.of.RRT < "2003-01-01",])
+Cox.psi$Death <- RRT.15.years$Death 
+
+PKT.coef <- rep(NA, length(possible.psi))
+PKT.se <- rep(NA, length(possible.psi))
+
+i <- 1
+for (i in 1:length(possible.psi)){
+  Model.psi <- 
+    coxph(Surv(Cox.psi[,i],Cox.psi$Death)~.,
+          data = Cox.psi[,(length(possible.psi)+3):
+                           ncol(Cox.psi)])
+  PKT.coef[i] <- summary(Model.psi)[[7]][20,1]
+  PKT.se[i] <- summary(Model.psi)[[7]][20,3]
+  print(paste("Loop #", i, "and",
+              (length(possible.psi)-i), "remaining"))
+}
+
+PKT.psi.15 <- PKT.coef/PKT.se
+
+# Estimated Psi
+estimated.psi.15 <- 
+  possible.psi[c(1:length(possible.psi))[abs(PKT.psi.15)==min(abs(PKT.psi.15))]]
+estimated.psi.15
+estimated.psi.15.lower <- 
+  possible.psi[c(1:length(possible.psi))
+               [abs(PKT.psi.15+1.96)==min(abs(PKT.psi.15+1.96))]]
+estimated.psi.15.lower
+estimated.psi.15.upper <- 
+  possible.psi[c(1:length(possible.psi))
+               [abs(PKT.psi.15-1.96)==min(abs(PKT.psi.15-1.96))]]
+estimated.psi.15.upper
+
+# Psi = -1.7 95%CI (-1.5, -2)
+
+# Possible psi to test
+possible.psi <- seq(from = -3, to = -1, by = 0.001)
+
+# Backtransformed time from RRT to transplant with different psi
+transformed.time.dialysis.transplant <- 
+  matrix(NA, nrow = nrow(RRT.15.years), ncol = length(possible.psi))
+
+i <- 1
+
+for (i in 1:length(possible.psi)){
+  transformed.time.dialysis.transplant[,i] <- 
+    RRT.15.years$Time.dialysis.transplant*exp(-possible.psi[i])
+}
+
+# Adding time from transplant onwards
+transformed.time.dialysis.death <- 
+  transformed.time.dialysis.transplant + 
+  RRT.15.years$Follow.up.transplant
+
+Cox.psi <- cbind.data.frame(transformed.time.dialysis.death,
+                            Cox.RRT[RRT$Date.of.RRT < "2003-01-01",])
+Cox.psi$Death <- RRT.15.years$Death 
+
+PKT.coef <- rep(NA, length(possible.psi))
+PKT.se <- rep(NA, length(possible.psi))
+
+i <- 1
+for (i in 1:length(possible.psi)){
+  Model.psi <- 
+    coxph(Surv(Cox.psi[,i],Cox.psi$Death)~.,
+          data = Cox.psi[,(length(possible.psi)+3):
+                           ncol(Cox.psi)])
+  PKT.coef[i] <- summary(Model.psi)[[7]][20,1]
+  PKT.se[i] <- summary(Model.psi)[[7]][20,3]
+  print(paste("Loop #", i, "and",
+              (length(possible.psi)-i), "remaining"))
+}
+
+PKT.psi.15 <- PKT.coef/PKT.se
+
+# Estimated Psi
+estimated.psi.15 <- 
+  possible.psi[c(1:length(possible.psi))[abs(PKT.psi.15)==min(abs(PKT.psi.15))]]
+estimated.psi.15
+estimated.psi.15.lower <- 
+  possible.psi[c(1:length(possible.psi))
+               [abs(PKT.psi.15+1.96)==min(abs(PKT.psi.15+1.96))]]
+estimated.psi.15.lower
+estimated.psi.15.upper <- 
+  possible.psi[c(1:length(possible.psi))
+               [abs(PKT.psi.15-1.96)==min(abs(PKT.psi.15-1.96))]]
+estimated.psi.15.upper
+
+# Psi = -1.732 95%CI (-1.457, -2.003)
+
+
+```
+
+
+```{r Forest plot summary of dealing with censoring, echo = F}
+# Forest plot summary of dealing with censoring 
+# Psi parameter
+# No title for paper
+par(xaxt = "n",
+    mfrow=c(1,1),
+    mar=c(6, 6, 4, 4))
+forestmada(x = c(-1.499, -2.929, -2.151, -1.732),
+           ci = cbind(c(-1.302, -2.497, -1.844, -1.457),
+                      c(-1.693, -3.376, -2.459, -2.003)),
+           plotci = T,
+           # main = "Dealing with Informative censoring",
+           xlab = TeX('$\\psi$'),
+           snames = c("",
+                      "",
+                      "",
+                      ""),
+           pch = 20,
+           cex = 0.8)
+mtext("Censoring",3, line=0, at=-3.6)
+mtext(TeX('$\\psi\\[95%CI\\]$'), 3, line=-0, at=-0.5)
+mtext("Observed",3, line=-2, at=-3.6)
+mtext("< 5 years",3, line=-3.5, at=-3.6)
+mtext("< 10 years",3, line=-5, at=-3.6)
+mtext("< 15 years",3, line=-6.5, at=-3.6)
+
+par(xaxt = "s")
+axis(1, at = seq(-3.4, -1.0, by = 0.2))
+segments(x0=-1.499, x1=-1.499,
+         y0=0, y1=5,
+         lty=2,
+         col = "green")
+
+# Exp(-psi) parameter
+par(xaxt = "n",
+    mfrow=c(1,1),
+    mar=c(6, 6, 4, 4))
+forestmada(x = exp(-c(-1.499, -2.929, -2.151, -1.732)),
+           ci = cbind(exp(-c(-1.302, -2.497, -1.844, -1.457)),
+                      exp(-c(-1.693, -3.376, -2.459, -2.003))),
+           plotci = T,
+           main = "Dealing with Informative censoring",
+           xlab = TeX('$\\exp(-\\psi$)'),
+           snames = c("Observed",
+                      "< 5 years",
+                      "< 10 years",
+                      "< 15 years"),
+           pch = 20,
+           cex = 1)
+mtext("Censoring",3, line=0, at=-20)
+par(xaxt = "s")
+axis(1, at = seq(2, 30, by = 2))
+segments(x0=exp(1.499), x1=exp(1.499),
+         y0=0, y1=5,
+         lty=2,
+         col = "green")
+
+
+```
+
+
+
+```{r G-Estimation for 2 parameters: Wide range, include = F}
+
+# W without transplant i.e. on dialysis
+possible.psi.W <- seq(from = -3, to = 3, by = 0.1)
+
+# R residual time i.e. after transplant
+possible.psi.R <- seq(from = -3, to = 3, by = 0.1)
+
+# Backtransformed time from RRT to transplant with different psi
+transformed.time.dialysis.transplant <- 
+  matrix(NA, nrow = nrow(RRT), ncol = length(possible.psi.W))
+
+i <- 1
+for (i in 1:length(possible.psi.W)){
+  transformed.time.dialysis.transplant[,i] <- 
+    RRT$Time.dialysis.transplant*exp(-possible.psi.W[i])
+}
+
+# Backtransformed time from transplant onward with different psi
+transformed.time.transplant.death <- 
+  matrix(NA, nrow = nrow(RRT), ncol = length(possible.psi.R))
+
+i <- 1
+for (i in 1:length(possible.psi.R)){
+  transformed.time.transplant.death[,i] <- 
+    ifelse(RRT$PKT==0, 
+           RRT$Follow.up.transplant*exp(-possible.psi.R[i]),
+           RRT$Follow.up.transplant)
+}
+
+# Adding both transformed times from transplant onwards
+transformed.time.dialysis.death <- 
+  matrix(NA, nrow = nrow(RRT), 
+         ncol = length(possible.psi.W)*length(possible.psi.R))
+
+i <- 1
+j <- 1
+for (i in 1:length(possible.psi.W)){
+  for (j in 1:length(possible.psi.R)){
+    transformed.time.dialysis.death[,((i-1)*length(possible.psi.R)+j)] <-
+      transformed.time.dialysis.transplant [,i] + 
+      transformed.time.transplant.death[,j]
+    j <- j+1
+  }
+  i <- i+1
+}
+
+# Interaction with sex, to include PT 
+Sex <- Cox.RRT$Sex
+sex.interaction <- 
+  as.formula(survival.outcome ~ Sex*.)
+sex.interaction  <- 
+  model.matrix(sex.interaction,
+               Cox.RRT[,c(10:16)])
+
+# Full data
+covariates <- cbind.data.frame(Cox.RRT[,c(3:23)],
+                               sex.interaction[,10:16])
+
+PKT.coef <- rep(NA, length(possible.psi.W)*length(possible.psi.R))
+PKT.se <- rep(NA, length(possible.psi.W)*length(possible.psi.R))
+PKT.sex.coef <- rep(NA, length(possible.psi.W)*length(possible.psi.R))
+PKT.sex.se <- rep(NA, length(possible.psi.W)*length(possible.psi.R))
+wald.test <- rep(NA, length(possible.psi.W)*length(possible.psi.R))
+
+i <- 1
+for (i in 1:(length(possible.psi.W)*length(possible.psi.R))){
+  Model.psi <- coxph(Surv(transformed.time.dialysis.death[,i],
+                          Cox.RRT[,2])~ .,
+                     data = covariates)
+  PKT.coef[i] <- summary(Model.psi)[[7]][14,1]
+  PKT.se[i] <- summary(Model.psi)[[7]][14,3]
+  PKT.sex.coef[i] <- summary(Model.psi)[[7]][28,1]
+  PKT.sex.se[i] <- summary(Model.psi)[[7]][28,3]
+  wald.test[i] <-
+    t(matrix(c(summary(Model.psi)[[7]][14],
+               summary(Model.psi)[[7]][28])))%*%
+    solve(matrix(data=c(Model.psi[[2]][14,14],
+                        Model.psi[[2]][14,28],
+                        Model.psi[[2]][28,14],
+                        Model.psi[[2]][28,28]),
+                 nrow=2, ncol=2, byrow=T))%*%
+    matrix(c(summary(Model.psi)[[7]][14],
+             summary(Model.psi)[[7]][28]))
+  print(paste("Loop #", i, "and",
+              (length(possible.psi.W)*length(possible.psi.R)-i), 
+              "remaining"))
+}
+
+PKT.psi <- PKT.coef/PKT.se
+PKT.sex.psi <- PKT.sex.coef/PKT.sex.se
+psi.W <- sort(rep(possible.psi.W,length(possible.psi.R)))
+psi.R <- rep(possible.psi.R,length(possible.psi.W))
+p.value <- pchisq(wald.test, df = 2)
+
+psi.combination <- cbind(psi.W,psi.R,PKT.psi,PKT.sex.psi,wald.test,p.value)
+
+#write.table(psi.combination,
+#            "PSI_2parameters.txt",
+#            sep="\t")
+
+# Indicator for minimum wald test
+combination.indicator <- 
+  c(1:length(PKT.psi))[wald.test==min(wald.test)]
+
+round(psi.combination[combination.indicator,], digits = 3)
+
+
+# One Cox model with PKT and PKT*Sex
+# Both psis from -3 to 3 by 0.1 
+#   psi.W       psi.R     PKT.psi PKT.sex.psi   wald.test    p.value  
+#  -1.700       0.300      -0.152      -0.023       0.024       0.012
+
+psi.combination.big <- as.data.frame(psi.combination)
+
+
+```
+
+```{r G-Estimation for 2 parameters: Narrow range, include = F}
+
+# W without transplant i.e. on dialysis
+possible.psi.W <- seq(from = -1.8, to = -1.6, by = 0.001)
+
+# R residual time i.e. after transplant
+possible.psi.R <- seq(from = 0.2, to = 0.4, by = 0.001)
+
+# Backtransformed time from RRT to transplant with different psi
+transformed.time.dialysis.transplant <- 
+  matrix(NA, nrow = nrow(RRT), ncol = length(possible.psi.W))
+
+i <- 1
+for (i in 1:length(possible.psi.W)){
+  transformed.time.dialysis.transplant[,i] <- 
+    RRT$Time.dialysis.transplant*exp(-possible.psi.W[i])
+}
+
+# Backtransformed time from transplant onward with different psi
+transformed.time.transplant.death <- 
+  matrix(NA, nrow = nrow(RRT), ncol = length(possible.psi.R))
+
+i <- 1
+for (i in 1:length(possible.psi.R)){
+  transformed.time.transplant.death[,i] <- 
+    ifelse(RRT$PKT==0, 
+           RRT$Follow.up.transplant*exp(-possible.psi.R[i]),
+           RRT$Follow.up.transplant)
+}
+
+# Adding both transformed times from transplant onwards
+transformed.time.dialysis.death <- 
+  matrix(NA, nrow = nrow(RRT), 
+         ncol = length(possible.psi.W)*length(possible.psi.R))
+
+i <- 1
+j <- 1
+for (i in 1:length(possible.psi.W)){
+  for (j in 1:length(possible.psi.R)){
+    transformed.time.dialysis.death[,((i-1)*length(possible.psi.R)+j)] <-
+      transformed.time.dialysis.transplant [,i] + 
+      transformed.time.transplant.death[,j]
+    j <- j+1
+  }
+  i <- i+1
+}
+
+PKT.coef <- rep(NA, length(possible.psi.W)*length(possible.psi.R))
+PKT.se <- rep(NA, length(possible.psi.W)*length(possible.psi.R))
+PKT.sex.coef <- rep(NA, length(possible.psi.W)*length(possible.psi.R))
+PKT.sex.se <- rep(NA, length(possible.psi.W)*length(possible.psi.R))
+wald.test <- rep(NA, length(possible.psi.W)*length(possible.psi.R))
+
+i <- 1
+for (i in 1:(length(possible.psi.W)*length(possible.psi.R))){
+  Model.psi <- coxph(Surv(transformed.time.dialysis.death[,i],
+                          Cox.RRT[,2])~ .,
+                     data = covariates)
+  PKT.coef[i] <- summary(Model.psi)[[7]][14,1]
+  PKT.se[i] <- summary(Model.psi)[[7]][14,3]
+  PKT.sex.coef[i] <- summary(Model.psi)[[7]][28,1]
+  PKT.sex.se[i] <- summary(Model.psi)[[7]][28,3]
+  wald.test[i] <-
+    t(matrix(c(summary(Model.psi)[[7]][14],
+               summary(Model.psi)[[7]][28])))%*%
+    solve(matrix(data=c(Model.psi[[2]][14,14],
+                        Model.psi[[2]][14,28],
+                        Model.psi[[2]][28,14],
+                        Model.psi[[2]][28,28]),
+                 nrow=2, ncol=2, byrow=T))%*%
+    matrix(c(summary(Model.psi)[[7]][14],
+             summary(Model.psi)[[7]][28]))
+  print(paste("Loop #", i, "and",
+              (length(possible.psi.W)*length(possible.psi.R)-i), 
+              "remaining"))
+}
+
+PKT.psi <- PKT.coef/PKT.se
+PKT.sex.psi <- PKT.sex.coef/PKT.sex.se
+psi.W <- sort(rep(possible.psi.W,length(possible.psi.R)))
+psi.R <- rep(possible.psi.R,length(possible.psi.W))
+p.value <- pchisq(wald.test, df = 2)
+
+psi.combination <- cbind(psi.W,psi.R,PKT.psi,PKT.sex.psi,wald.test,p.value)
+
+#write.table(psi.combination,
+#            "PSI_2parameters_narrow.txt",
+#            sep="\t")
+
+# Indicator for minimum wald test
+combination.indicator <- 
+  c(1:length(PKT.psi))[wald.test==min(wald.test)]
+
+round(psi.combination[combination.indicator,], digits = 3)
+
+# psi.W       psi.R     PKT.psi PKT.sex.psi   wald.test     p.value 
+# -1.727       0.333       0.000       0.001       0.000       0.000 
+
+# Confidence intervals based on p-value
+summary(psi.combination[round(p.value, digits = 4)==0.05,1:2])
+
+# psi.W min -1.776, max -1.645
+# psi.R min  0.203, max  0.388
+
+
+
+```
+
+
+
+```{r Summary table Cox model 2, echo = F}
+
+# Summary of Cox model for the chosen psi
+Model.psi.2 <- 
+  coxph(Surv(transformed.time.dialysis.death[,combination.indicator],
+             Cox.RRT[,2])~.,
+        data = covariates)
+
+
+Model.psi.2.summary <- 
+  matrix(NA, nrow = ncol(covariates), ncol = 3)
+
+Model.psi.2.summary[,1] <-
+  format(round(summary(Model.psi.2)[[7]][,1], digits = 2), nsmall = 2)
+
+Model.psi.2.summary[,2] <-
+  format(round(summary(Model.psi.2)[[7]][,3], digits = 2), nsmall = 2)
+
+Model.psi.2.summary[,3] <-
+  paste(format(round(summary(Model.psi.2)[[8]][,1], 
+                     digits = 2), nsmall = 2), " (",
+        format(round(summary(Model.psi.2)[[8]][,3], 
+                     digits = 2), nsmall = 2),", ", 
+        format(round(summary(Model.psi.2)[[8]][,4], 
+                     digits = 2), nsmall = 2), ")", sep = "")
+
+rownames(Model.psi.2.summary) <- 
+  colnames(covariates)
+colnames(Model.psi.2.summary) <- 
+  c("Beta","SE","HR (95% CI)")
+
+
+```
+
+
+
+
+
